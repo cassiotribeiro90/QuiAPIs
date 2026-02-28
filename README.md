@@ -31,8 +31,3 @@ docker-compose up -d
 - Parar containers: docker-compose down
 - Ver logs: docker-compose logs -f
 - Acessar container PHP: docker-compose exec php bash
-
-## Estrutura
-
-A estrutura do docker está exemplificada em api.zip com as configurações para subir ambiente docker
-
