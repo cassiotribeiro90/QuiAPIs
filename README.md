@@ -36,5 +36,3 @@ docker-compose up -d
 
 A estrutura do docker está exemplificada em api.zip com as configurações para subir ambiente docker
 
-<img width="194" height="170" alt="Captura de tela 2026-02-28 153901" src="https://github.com/user-attachments/assets/a147be4e-b501-4fd5-a10e-35c3254cef43" />
-
