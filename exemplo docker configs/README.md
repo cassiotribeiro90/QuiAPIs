@@ -1,12 +1,12 @@
 ## Estrutura
 
 
-├── docker-compose.yml
-├── docker/
-│ ├── php/
-│ │  └── Dockerfile
-│ └── nginx/
-│   └── conf.d/
-│       └── api.conf
-└── src/ (raiz do projeto yii2)
+├── docker-compose.yml </br>
+├── docker/ </br>
+│ ├── php/ </br>
+│ │  └── Dockerfile </br>
+│ └── nginx/ </br>
+│   └── conf.d/ </br>
+│       └── api.conf </br> 
+└── src/ (raiz do projeto yii2) </br>
 
