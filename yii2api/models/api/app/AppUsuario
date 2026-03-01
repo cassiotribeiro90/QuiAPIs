@@ -2,9 +2,10 @@
 namespace app\models\app;
 
 use Yii;
-use app\models\common\UsuarioBase;
+use yii\db\ActiveRecord;
+use yii\web\IdentityInterface;
 
-class AppUsuario extends UsuarioBase
+class AppUsuario extends ActiveRecord implements IdentityInterface
 {
     public static function tableName()
     {
@@ -13,23 +14,46 @@ class AppUsuario extends UsuarioBase
 
     public function rules()
     {
-        $rules = parent::rules();
-        return array_merge($rules, [
-            [['cpf'], 'required'],
+        return [
+            [['nome', 'email', 'cpf'], 'required'],
+            [['email'], 'email'],
+            [['email'], 'unique'],
             [['cpf'], 'unique'],
             [['cpf'], 'string', 'length' => 11],
             [['data_nascimento'], 'safe'],
             [['telefone'], 'string', 'max' => 20],
-        ]);
+            [['preferencias', 'cartoes', 'metadata'], 'safe'],
+        ];
     }
 
-    public function attributeLabels()
+/*     public function getEnderecos()
     {
-        $labels = parent::attributeLabels();
-        return array_merge($labels, [
-            'cpf' => 'CPF',
-            'data_nascimento' => 'Data de Nascimento',
-            'telefone' => 'Telefone',
-        ]);
+        return $this->hasMany(AppEndereco::class, ['usuario_id' => 'id']);
+    } */
+
+    // IdentityInterface methods...
+    public static function findIdentity($id)
+    {
+        return static::findOne($id);
+    }
+
+    public static function findIdentityByAccessToken($token, $type = null)
+    {
+        return static::findOne(['access_token' => $token]);
+    }
+
+    public function getId()
+    {
+        return $this->id;
+    }
+
+    public function getAuthKey()
+    {
+        return $this->auth_key;
+    }
+
+    public function validateAuthKey($authKey)
+    {
+        return $this->auth_key === $authKey;
     }
 }
