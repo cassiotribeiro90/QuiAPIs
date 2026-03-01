@@ -1,0 +1,35 @@
+<?php
+namespace app\models\app;
+
+use Yii;
+use app\models\common\UsuarioBase;
+
+class AppUsuario extends UsuarioBase
+{
+    public static function tableName()
+    {
+        return 'app_usuarios';
+    }
+
+    public function rules()
+    {
+        $rules = parent::rules();
+        return array_merge($rules, [
+            [['cpf'], 'required'],
+            [['cpf'], 'unique'],
+            [['cpf'], 'string', 'length' => 11],
+            [['data_nascimento'], 'safe'],
+            [['telefone'], 'string', 'max' => 20],
+        ]);
+    }
+
+    public function attributeLabels()
+    {
+        $labels = parent::attributeLabels();
+        return array_merge($labels, [
+            'cpf' => 'CPF',
+            'data_nascimento' => 'Data de Nascimento',
+            'telefone' => 'Telefone',
+        ]);
+    }
+}
