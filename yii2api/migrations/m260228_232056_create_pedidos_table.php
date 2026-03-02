@@ -13,7 +13,7 @@ use yii\db\Migration;
  * Status:
  * - novo, aguardando, confirmado, preparando, pronto, saiu, entregue, cancelado
  */
-class m260301_100008_create_pedidos_table extends Migration
+class m260228_232056_create_pedidos_table extends Migration
 {
     public function safeUp()
     {
@@ -29,15 +29,26 @@ class m260301_100008_create_pedidos_table extends Migration
             'endereco_id' => $this->integer()->null()->comment('endereço de entrega escolhido'),
             
             // ========== STATUS ==========
+            //    'status' => "ENUM(
+            //    'novo',               // 🆕 Pedido criado
+            //    'aguardando',         // ⏳ Aguardando confirmação
+            //    'confirmado',         // ✅ Loja confirmou
+            //    'preparando',         // 👨‍🍳 Preparando
+            //    'pronto',             // 🍱 Pronto para retirada
+            //    'saiu',               // 🛵 Saiu para entrega
+            //    'entregue',           // 📦 Entregue
+            //    'cancelado'           // ❌ Cancelado
+            // ) NOT NULL DEFAULT 'novo'",
+
             'status' => "ENUM(
-                'novo',              // 🆕 Pedido criado
-                'aguardando',         // ⏳ Aguardando confirmação
-                'confirmado',         // ✅ Loja confirmou
-                'preparando',         // 👨‍🍳 Preparando
-                'pronto',             // 🍱 Pronto para retirada
-                'saiu',               // 🛵 Saiu para entrega
-                'entregue',           // 📦 Entregue
-                'cancelado'           // ❌ Cancelado
+                'novo', 
+                'aguardando', 
+                'confirmado', 
+                'preparando', 
+                'pronto', 
+                'saiu', 
+                'entregue', 
+                'cancelado'
             ) NOT NULL DEFAULT 'novo'",
             
             'status_historico' => $this->json()->null()->comment('timeline do pedido'),
@@ -111,33 +122,9 @@ class m260301_100008_create_pedidos_table extends Migration
             'deleted_at' => $this->timestamp()->null(),
         ]);
 
-        // ========== CHAVES ESTRANGEIRAS ==========
-        $this->addForeignKey(
-            'fk-pedidos-usuario_id',
-            '{{%pedidos}}',
-            'usuario_id',
-            '{{%app_usuarios}}',
-            'id',
-            'CASCADE'
-        );
 
-        $this->addForeignKey(
-            'fk-pedidos-loja_id',
-            '{{%pedidos}}',
-            'loja_id',
-            '{{%lojas}}',
-            'id',
-            'CASCADE'
-        );
 
-        $this->addForeignKey(
-            'fk-pedidos-endereco_id',
-            '{{%pedidos}}',
-            'endereco_id',
-            '{{%enderecos}}',
-            'id',
-            'SET NULL'
-        );
+
 
         // ========== ÍNDICES ==========
         $this->createIndex('idx-pedidos-codigo', '{{%pedidos}}', 'codigo');

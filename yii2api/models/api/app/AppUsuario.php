@@ -127,6 +127,8 @@ class AppUsuario extends ActiveRecord implements IdentityInterface
         ];
     }
 
+    // ========== MÉTODOS DE AUTENTICAÇÃO ==========
+
     /**
      * Gera hash da senha e auth_key
      */
@@ -149,12 +151,12 @@ class AppUsuario extends ActiveRecord implements IdentityInterface
     }
 
     /**
-     * Gera novo token de acesso
+     * Gera novo token de acesso com expiração
      */
-    public function gerarTokenAcesso()
+    public function gerarTokenAcesso($dias = 30)
     {
         $this->access_token = Yii::$app->security->generateRandomString();
-        $this->access_token_expires_at = date('Y-m-d H:i:s', strtotime('+30 days'));
+        $this->access_token_expires_at = date('Y-m-d H:i:s', strtotime("+{$dias} days"));
         return $this->access_token;
     }
 
@@ -168,6 +170,17 @@ class AppUsuario extends ActiveRecord implements IdentityInterface
     }
 
     /**
+     * Verifica se token é válido
+     */
+    public function tokenValido()
+    {
+        if (empty($this->access_token) || empty($this->access_token_expires_at)) {
+            return false;
+        }
+        return strtotime($this->access_token_expires_at) > time();
+    }
+
+    /**
      * Atualiza informações de login
      */
     public function registrarLogin()
@@ -177,6 +190,8 @@ class AppUsuario extends ActiveRecord implements IdentityInterface
         $this->login_count = ($this->login_count ?? 0) + 1;
         $this->gerarTokenAcesso();
     }
+
+    // ========== MÉTODOS DE VERIFICAÇÃO ==========
 
     /**
      * Verifica se usuário tem senha
@@ -201,6 +216,78 @@ class AppUsuario extends ActiveRecord implements IdentityInterface
     {
         return !empty($this->facebook_id);
     }
+
+    /**
+     * Verifica se é admin
+     */
+    public function isAdmin()
+    {
+        return $this->tipo === self::TIPO_ADMIN;
+    }
+
+    // ========== MÉTODOS DE NEGÓCIO ==========
+
+    /**
+     * Adiciona pontos ao usuário
+     */
+    public function adicionarPontos($pontos)
+    {
+        $this->pontos += $pontos;
+        
+        // Atualiza nível baseado em pontos (exemplo simples)
+        if ($this->pontos >= 1000) {
+            $this->nivel = 5;
+        } elseif ($this->pontos >= 500) {
+            $this->nivel = 4;
+        } elseif ($this->pontos >= 200) {
+            $this->nivel = 3;
+        } elseif ($this->pontos >= 50) {
+            $this->nivel = 2;
+        }
+        
+        return $this->save();
+    }
+
+    /**
+     * Registra uma compra
+     */
+    public function registrarCompra($valor)
+    {
+        $this->ultima_compra_at = date('Y-m-d H:i:s');
+        
+        if (empty($this->primeira_compra_at)) {
+            $this->primeira_compra_at = $this->ultima_compra_at;
+        }
+        
+        $this->total_compras++;
+        $this->total_gasto += $valor;
+        
+        // Exemplo: 1 ponto a cada R$10
+        $pontos_ganhos = floor($valor / 10);
+        $this->adicionarPontos($pontos_ganhos);
+        
+        return $this->save();
+    }
+
+    /**
+     * Aceita os termos
+     */
+    public function aceitarTermos()
+    {
+        $this->termos_aceitos = true;
+        $this->termos_aceitos_at = date('Y-m-d H:i:s');
+        return $this->save();
+    }
+
+    /**
+     * Gera código de indicação único
+     */
+    public static function gerarCodigoIndicacao()
+    {
+        return strtoupper(substr(md5(uniqid()), 0, 8));
+    }
+
+    // ========== MÉTODOS SOCIAIS ==========
 
     /**
      * Busca ou cria usuário por email (para login social)
@@ -231,9 +318,7 @@ class AppUsuario extends ActiveRecord implements IdentityInterface
             $usuario->status = self::STATUS_ATIVO;
             $usuario->email_verified = true;
             $usuario->auth_key = Yii::$app->security->generateRandomString();
-            
-            // Gera código de indicação único
-            $usuario->codigo_indicacao = strtoupper(substr(md5(uniqid()), 0, 8));
+            $usuario->codigo_indicacao = self::gerarCodigoIndicacao();
             
             if ($provider === 'google') {
                 $usuario->google_id = $providerId;
@@ -248,6 +333,15 @@ class AppUsuario extends ActiveRecord implements IdentityInterface
         }
         
         return null;
+    }
+
+    /**
+     * Busca usuário por ID social
+     */
+    public static function findBySocialId($provider, $providerId)
+    {
+        $campo = $provider . '_id';
+        return static::findOne([$campo => $providerId]);
     }
 
     // ========== IdentityInterface ==========

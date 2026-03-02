@@ -3,17 +3,14 @@
 use yii\db\Migration;
 
 /**
- * Handles the creation of table `{{%subcategorias}}`.
+ * Handles the creation of table `{{%categorias}}`.
  */
-class m260301_010137_create_subcategorias_table extends Migration
+class m260301_010137_create_categorias_table extends Migration
 {
-        public function safeUp()
+    public function safeUp()
     {
-        $this->createTable('{{%subcategorias}}', [
+        $this->createTable('{{%categorias}}', [
             'id' => $this->primaryKey(),
-            
-            // ========== RELACIONAMENTO ==========
-            'categoria_id' => $this->integer()->notNull(),
             
             // ========== IDENTIFICAÇÃO ==========
             'nome' => $this->string(100)->notNull(),
@@ -21,12 +18,14 @@ class m260301_010137_create_subcategorias_table extends Migration
             'descricao' => $this->string(255)->null(),
             
             // ========== VISUAL ==========
-            'icone' => $this->string(50)->null(),
+            'icone' => $this->string(50)->null()->comment('código do ícone (ex: burger, drink, fries)'),
             'imagem' => $this->string(500)->null(),
+            'cor' => $this->string(7)->defaultValue('#FF6B6B')->comment('Cor principal da categoria'),
             
             // ========== CONTROLE ==========
             'ordem' => $this->integer()->defaultValue(0),
             'ativo' => $this->boolean()->defaultValue(true),
+            'destaque' => $this->boolean()->defaultValue(false)->comment('aparece na home?'),
             
             // ========== METADADOS ==========
             'metadata' => $this->json()->null(),
@@ -36,23 +35,13 @@ class m260301_010137_create_subcategorias_table extends Migration
             'updated_at' => $this->timestamp()->defaultExpression('CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP'),
         ]);
 
-        $this->addForeignKey(
-            'fk-subcategorias-categoria_id',
-            '{{%subcategorias}}',
-            'categoria_id',
-            '{{%categorias}}',
-            'id',
-            'CASCADE'
-        );
-
-        $this->createIndex('idx-subcategorias-categoria_id', '{{%subcategorias}}', 'categoria_id');
-        $this->createIndex('idx-subcategorias-ativo', '{{%subcategorias}}', 'ativo');
-        $this->createIndex('idx-subcategorias-ordem', '{{%subcategorias}}', 'ordem');
+        $this->createIndex('idx-categorias-ativo', '{{%categorias}}', 'ativo');
+        $this->createIndex('idx-categorias-ordem', '{{%categorias}}', 'ordem');
+        $this->createIndex('idx-categorias-destaque', '{{%categorias}}', 'destaque');
     }
 
     public function safeDown()
     {
-        $this->dropForeignKey('fk-subcategorias-categoria_id', '{{%subcategorias}}');
-        $this->dropTable('{{%subcategorias}}');
+        $this->dropTable('{{%categorias}}');
     }
 }

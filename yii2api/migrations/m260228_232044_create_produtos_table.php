@@ -111,15 +111,6 @@ class m260228_232044_create_produtos_table extends Migration
             'CASCADE'
         );
 
-        $this->addForeignKey(
-            'fk-produtos-subcategoria_id',
-            '{{%produtos}}',
-            'subcategoria_id',
-            '{{%subcategorias}}',
-            'id',
-            'SET NULL'
-        );
-
         // ========== ÍNDICES ==========
         $this->createIndex('idx-produtos-loja_id', '{{%produtos}}', 'loja_id');
         $this->createIndex('idx-produtos-subcategoria_id', '{{%produtos}}', 'subcategoria_id');

@@ -7,7 +7,7 @@ use yii\db\Migration;
  */
 class m260228_231905_create_app_usuarios_table extends Migration
 {
-        public function safeUp()
+    public function safeUp()
     {
         $this->createTable('{{%app_usuarios}}', [
             // ========== CHAVE PRIMÁRIA ==========
@@ -25,12 +25,17 @@ class m260228_231905_create_app_usuarios_table extends Migration
             'whatsapp' => $this->string(20)->null(),
             
             // ========== AUTENTICAÇÃO ==========
-            'senha_hash' => $this->string(255)->notNull(),
+            'senha_hash' => $this->string(255)->null(), // AGORA NULL (para usuários sociais)
             'auth_key' => $this->string(32)->notNull(),
             'access_token' => $this->string(255)->null()->unique(),
             'access_token_expires_at' => $this->timestamp()->null(),
             'password_reset_token' => $this->string(255)->null()->unique(),
             'password_reset_expires_at' => $this->timestamp()->null(),
+            
+            // ========== CAMPOS SOCIAIS ==========
+            'google_id' => $this->string(255)->null()->unique(),
+            'facebook_id' => $this->string(255)->null()->unique(),
+            'avatar' => $this->string(500)->null(),
             
             // ========== PERFIL ==========
             'tipo' => "ENUM('cliente', 'admin') NOT NULL DEFAULT 'cliente'",
@@ -57,7 +62,7 @@ class m260228_231905_create_app_usuarios_table extends Migration
             // ========== PREFERÊNCIAS ==========
             'pref_notificacoes_email' => $this->boolean()->defaultValue(true),
             'pref_notificacoes_push' => $this->boolean()->defaultValue(true),
-            'pref_notificacoes_sms' => $this->boolean()->defaultValue(true), // AGORA TRUE (agressivo)
+            'pref_notificacoes_sms' => $this->boolean()->defaultValue(true),
             'pref_tema' => "ENUM('light', 'dark', 'auto') NOT NULL DEFAULT 'auto'",
             
             // ========== TERMOS ==========
@@ -77,6 +82,8 @@ class m260228_231905_create_app_usuarios_table extends Migration
         $this->createIndex('idx-app_usuarios-status', '{{%app_usuarios}}', 'status');
         $this->createIndex('idx-app_usuarios-tipo', '{{%app_usuarios}}', 'tipo');
         $this->createIndex('idx-app_usuarios-access_token', '{{%app_usuarios}}', 'access_token');
+        $this->createIndex('idx-app_usuarios-google_id', '{{%app_usuarios}}', 'google_id');
+        $this->createIndex('idx-app_usuarios-facebook_id', '{{%app_usuarios}}', 'facebook_id');
         $this->createIndex('idx-app_usuarios-ultimo_login_at', '{{%app_usuarios}}', 'ultimo_login_at');
         $this->createIndex('idx-app_usuarios-indicado_por', '{{%app_usuarios}}', 'indicado_por');
         $this->createIndex('idx-app_usuarios-pontos', '{{%app_usuarios}}', 'pontos');
@@ -94,7 +101,7 @@ class m260228_231905_create_app_usuarios_table extends Migration
         );
         
         // ========== COMENTÁRIO DA TABELA ==========
-        $this->addCommentOnTable('{{%app_usuarios}}', 'Usuários do aplicativo (clientes) - MVP 1.0 - Sem foto, SMS ativo');
+        $this->addCommentOnTable('{{%app_usuarios}}', 'Usuários do aplicativo (clientes) com suporte a login social');
     }
 
     public function safeDown()
