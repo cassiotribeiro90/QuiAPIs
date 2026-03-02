@@ -3,6 +3,8 @@
 $params = require __DIR__ . '/params.php';
 $db = require __DIR__ . '/db.php';
 
+Yii::setAlias('@app', dirname(__DIR__));
+
 $config = [
     'id' => 'basic',
     'basePath' => dirname(__DIR__),
@@ -12,6 +14,22 @@ $config = [
         '@npm'   => '@vendor/npm-asset',
     ],
     'components' => [
+         // User para clientes/App
+        'user' => [
+            'identityClass' => 'app\models\AppUsuario',  // Clientes
+            'enableAutoLogin' => false,
+            'enableSession' => false,
+            'loginUrl' => null,
+        ],
+        
+        // User para lojistas (nome diferente)
+        'userLojista' => [
+            'class' => 'yii\web\User',
+            'identityClass' => 'app\models\LojistaUsuario',  // Lojistas
+            'enableAutoLogin' => false,
+            'enableSession' => false,
+            'loginUrl' => null,
+        ],
         'request' => [
             // !!! insert a secret key in the following (if it is empty) - this is required by cookie validation
             'cookieValidationKey' => 'B226kftmhnPN6snNBVMWddi8P3nTJLK7',
@@ -51,6 +69,7 @@ $config = [
                 'GET lojista/pedido' => 'api/lojista/pedido/index',
                 'GET lojista/pedido/<id:\d+>' => 'api/lojista/pedido/view',
                 'POST lojista/pedido' => 'api/lojista/pedido/create',
+                'POST auth-lojista/create' => 'auth-lojista/create',
                 
                 // API App
                 'GET app/produto' => 'api/app/produto/index',
@@ -61,6 +80,13 @@ $config = [
                 'GET gestor/relatorio' => 'api/gestor/relatorio/index',
                 'GET gestor/relatorio/vendas' => 'api/gestor/relatorio/vendas',
                 'GET gestor/relatorio/clientes' => 'api/gestor/relatorio/clientes',
+                 // Auth Lojista
+                'POST auth-lojista/create' => 'auth-lojista/create',
+                'POST auth-lojista/login' => 'auth-lojista/login',
+                'POST auth-lojista/logout' => 'auth-lojista/logout',
+                'POST auth-lojista/refresh' => 'auth-lojista/refresh',
+                'GET auth-lojista/me' => 'auth-lojista/me',
+                'OPTIONS auth-lojista/<action>' => 'auth-lojista/options',
             ],
         ],
     ],
