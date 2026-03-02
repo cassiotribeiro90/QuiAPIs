@@ -3,16 +3,16 @@
 use yii\db\Migration;
 
 /**
- * Handles the creation of table `{{%enderecos}}`.
+ * Handles the creation of table `{{%app_enderecos}}`.
  */
-class m260228_232026_create_enderecos_table extends Migration
+class m260302_121038_create_app_enderecos_table extends Migration
 {
     /**
      * {@inheritdoc}
      */
     public function safeUp()
     {
-        $this->createTable('{{%enderecos}}', [
+        $this->createTable('{{%app_enderecos}}', [
             'id' => $this->primaryKey(),
         ]);
     }
@@ -22,6 +22,6 @@ class m260228_232026_create_enderecos_table extends Migration
      */
     public function safeDown()
     {
-        $this->dropTable('{{%enderecos}}');
+        $this->dropTable('{{%app_enderecos}}');
     }
 }
