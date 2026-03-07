@@ -10,8 +10,9 @@ use yii\web\BadRequestHttpException;
 use yii\web\UnauthorizedHttpException;
 use yii\web\ConflictHttpException;
 use app\models\api\gestor\GestorUsuario;
+use app\controllers\api\gestor\ControllerBase;;
 
-class GestorUsuariosController extends Controller
+class GestorUsuariosController extends ControllerBase
 {
     public $enableCsrfValidation = false;
     
