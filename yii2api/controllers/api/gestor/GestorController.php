@@ -1,5 +1,5 @@
 <?php
-namespace app\controllers\api\app;
+namespace app\controllers\api\gestor;
 
 use yii\rest\Controller;
 

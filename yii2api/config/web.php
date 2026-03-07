@@ -65,28 +65,22 @@ $config = [
             'showScriptName' => false,
             'enableStrictParsing' => false,
             'rules' => [
-                // API Lojista
+
+                // API App
+                'GET app/produto' => 'api/app/produto/index',
+                'GET app/produto/<id:\d+>' => 'api/app/produto/view',
+                'POST app/produto' => 'api/app/produto/create', 
+
+                 // API Lojista
                 'GET lojista/pedido' => 'api/lojista/pedido/index',
                 'GET lojista/pedido/<id:\d+>' => 'api/lojista/pedido/view',
                 'POST lojista/pedido' => 'api/lojista/pedido/create',
                 'POST auth-lojista/create' => 'auth-lojista/create',
-                
-                // API App
-                'GET app/produto' => 'api/app/produto/index',
-                'GET app/produto/<id:\d+>' => 'api/app/produto/view',
-                'POST app/produto' => 'api/app/produto/create',
-                
-                // API Gestor
-                'GET gestor/relatorio' => 'api/gestor/relatorio/index',
-                'GET gestor/relatorio/vendas' => 'api/gestor/relatorio/vendas',
-                'GET gestor/relatorio/clientes' => 'api/gestor/relatorio/clientes',
-                 // Auth Lojista
-                'POST auth-lojista/create' => 'auth-lojista/create',
                 'POST auth-lojista/login' => 'auth-lojista/login',
-                'POST auth-lojista/logout' => 'auth-lojista/logout',
-                'POST auth-lojista/refresh' => 'auth-lojista/refresh',
-                'GET auth-lojista/me' => 'auth-lojista/me',
-                'OPTIONS auth-lojista/<action>' => 'auth-lojista/options',
+
+                // API Gestor
+                'POST gestor/gestor-usuarios/login' => 'gestor/gestor-usuarios/login',
+                'POST gestor/gestor-usuarios/create' => 'gestor/gestor-usuarios/create',
             ],
         ],
     ],
