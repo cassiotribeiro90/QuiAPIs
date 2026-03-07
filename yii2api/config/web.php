@@ -16,7 +16,7 @@ $config = [
     'components' => [
          // User para clientes/App
         'user' => [
-            'identityClass' => 'app\models\AppUsuario',  // Clientes
+            'identityClass' => 'app\models\app\AppUsuario',  // Clientes
             'enableAutoLogin' => false,
             'enableSession' => false,
             'loginUrl' => null,
@@ -25,7 +25,14 @@ $config = [
         // User para lojistas (nome diferente)
         'userLojista' => [
             'class' => 'yii\web\User',
-            'identityClass' => 'app\models\LojistaUsuario',  // Lojistas
+            'identityClass' => 'app\models\lojista\LojistaUsuario',  // Lojistas
+            'enableAutoLogin' => false,
+            'enableSession' => false,
+            'loginUrl' => null,
+        ],
+        'userGestor' => [
+            'class' => 'yii\web\User',
+            'identityClass' => 'app\models\gestor\GestorUsuario',  // Gestores
             'enableAutoLogin' => false,
             'enableSession' => false,
             'loginUrl' => null,

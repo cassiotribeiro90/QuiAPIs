@@ -11,15 +11,14 @@ class ControllerBase extends Controller
     
     public function beforeAction($action)
     {
-        // FORÇA HEADERS CORS em todas as respostas
-        $headers = Yii::$app->response->headers;
-        $headers->add('Access-Control-Allow-Origin', '*');
-        $headers->add('Access-Control-Allow-Methods', 'GET, POST, OPTIONS, PUT, DELETE, PATCH');
-        $headers->add('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
-        $headers->add('Access-Control-Allow-Credentials', 'true');
-        
         // FORÇA JSON em todas as respostas
         Yii::$app->response->format = Response::FORMAT_JSON;
+
+        $headers = Yii::$app->response->headers;
+        $headers->add('Access-Control-Allow-Origin', '*');
+        $headers->add('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
+        $headers->add('Access-Control-Allow-Credentials', 'true');
+        $headers->add('Access-Control-Max-Age', '86400');
         
         // RESPOSTA RÁPIDA PARA OPTIONS (preflight)
         if (Yii::$app->request->method === 'OPTIONS') {

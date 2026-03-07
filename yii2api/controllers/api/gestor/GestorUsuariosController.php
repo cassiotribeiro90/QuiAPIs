@@ -18,8 +18,8 @@ class GestorUsuariosController extends ControllerBase
     
     public function beforeAction($action)
     {
-        // Define o formato JSON para todas as respostas
-        Yii::$app->response->format = Response::FORMAT_JSON;
+        $headers = Yii::$app->response->headers;
+        $headers->add('Access-Control-Allow-Methods', 'POST, OPTIONS');
         return parent::beforeAction($action);
     }
     
