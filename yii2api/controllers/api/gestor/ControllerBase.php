@@ -43,4 +43,25 @@ class ControllerBase extends Controller
     {
         return '';
     }
+
+    /**
+     * Extrai usuário do token no header
+     */
+    protected function getUserByToken()
+    {
+        $authHeader = Yii::$app->request->headers->get('Authorization');
+        
+        if (!$authHeader || !preg_match('/^Bearer\s+(.*?)$/', $authHeader, $matches)) {
+            throw new \yii\web\UnauthorizedHttpException('Token não fornecido');
+        }
+        
+        $token = $matches[1];
+        $gestor = \app\models\api\gestor\GestorUsuario::findIdentityByAccessToken($token);
+        
+        if (!$gestor) {
+            throw new \yii\web\UnauthorizedHttpException('Token inválido ou expirado');
+        }
+        
+        return $gestor;
+    }
 }

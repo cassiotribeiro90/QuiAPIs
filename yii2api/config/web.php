@@ -89,6 +89,7 @@ $config = [
                 'POST auth-lojista/login' => 'auth-lojista/login',
 
                 // API Gestor
+                // Usuarios do painel gestor
                 'api/gestor/gestor-usuarios' => 'api/gestor/gestor-usuarios/index',
                 'api/gestor/gestor-usuarios/<id:\d+>' => 'api/gestor/gestor-usuarios/view',
                 'api/gestor/gestor-usuarios/login' => 'api/gestor/gestor-usuarios/login',
@@ -99,6 +100,10 @@ $config = [
                 'api/gestor/gestor-usuarios/delete/<id:\d+>' => 'api/gestor/gestor-usuarios/delete',
                 'api/gestor/gestor-usuarios/refresh-token' => 'api/gestor/gestor-usuarios/refresh-token',
                 'api/gestor/gestor-usuarios/check-token' => 'api/gestor/gestor-usuarios/check-token',
+
+                // Dashboard do Gestor
+                'api/gestor/dashboard' => 'api/gestor/dashboard/index',
+                'api/gestor/dashboard/graficos' => 'api/gestor/dashboard/graficos',
             ],
         ],
     ],
