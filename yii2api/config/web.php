@@ -89,8 +89,16 @@ $config = [
                 'POST auth-lojista/login' => 'auth-lojista/login',
 
                 // API Gestor
-                'POST gestor/gestor-usuarios/login' => 'gestor/gestor-usuarios/login',
-                'POST gestor/gestor-usuarios/create' => 'gestor/gestor-usuarios/create',
+                'api/gestor/gestor-usuarios' => 'api/gestor/gestor-usuarios/index',
+                'api/gestor/gestor-usuarios/<id:\d+>' => 'api/gestor/gestor-usuarios/view',
+                'api/gestor/gestor-usuarios/login' => 'api/gestor/gestor-usuarios/login',
+                'api/gestor/gestor-usuarios/logout' => 'api/gestor/gestor-usuarios/logout',
+                'api/gestor/gestor-usuarios/me' => 'api/gestor/gestor-usuarios/me',
+                'api/gestor/gestor-usuarios/create' => 'api/gestor/gestor-usuarios/create',
+                'api/gestor/gestor-usuarios/update/<id:\d+>' => 'api/gestor/gestor-usuarios/update',
+                'api/gestor/gestor-usuarios/delete/<id:\d+>' => 'api/gestor/gestor-usuarios/delete',
+                'api/gestor/gestor-usuarios/refresh-token' => 'api/gestor/gestor-usuarios/refresh-token',
+                'api/gestor/gestor-usuarios/check-token' => 'api/gestor/gestor-usuarios/check-token',
             ],
         ],
     ],

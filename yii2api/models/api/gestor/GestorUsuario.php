@@ -1,5 +1,5 @@
 <?php
-// Arquivo: models/api/gestor/GestorUsuario.php
+// models/api/gestor/GestorUsuario.php
 
 namespace app\models\api\gestor;
 
@@ -13,166 +13,185 @@ class GestorUsuario extends ActiveRecord implements IdentityInterface
     const STATUS_INATIVO = 0;
     const STATUS_BLOQUEADO = 2;
     
-    const TIPO_COMERCIAL = 'comercial';
-    const TIPO_ADMIN = 'admin';
-    const TIPO_SUPORTE = 'suporte';
-
+    // Cenários para validação
+    const SCENARIO_LOGIN = 'login';
+    const SCENARIO_CREATE = 'create';
+    const SCENARIO_UPDATE = 'update';
+    
     public static function tableName()
     {
-        return 'gestor_usuarios';
+        return '{{%gestor_usuario}}';
     }
-
-    public function rules()
-    {
-        return [
-            // ========== OBRIGATÓRIOS ==========
-            [['nome', 'email', 'senha_hash'], 'required'],
-            
-            // ========== EMAIL ==========
-            [['email'], 'email'],
-            [['email'], 'unique'],
-            
-            // ========== STRINGS ==========
-            [['nome', 'email'], 'string', 'max' => 255],
-            [['cpf'], 'string', 'max' => 14],
-            [['telefone'], 'string', 'max' => 15],
-            [['tipo'], 'string', 'max' => 20],
-            [['auth_key'], 'string', 'max' => 32],
-            [['access_token'], 'string', 'max' => 255],
-            [['ultimo_login_ip'], 'string', 'max' => 45],
-            
-            // ========== TIPO ==========
-            [['tipo'], 'default', 'value' => self::TIPO_COMERCIAL],
-            [['tipo'], 'in', 'range' => [
-                self::TIPO_COMERCIAL,
-                self::TIPO_ADMIN,
-                self::TIPO_SUPORTE
-            ]],
-            
-            // ========== STATUS ==========
-            [['status'], 'integer'],
-            [['status'], 'default', 'value' => self::STATUS_ATIVO],
-            [['status'], 'in', 'range' => [
-                self::STATUS_ATIVO,
-                self::STATUS_INATIVO,
-                self::STATUS_BLOQUEADO
-            ]],
-            
-            // ========== DATAS ==========
-            [['ultimo_login_at', 'access_token_expires_at', 'created_at', 'updated_at'], 'safe'],
-        ];
-    }
-
-    public function attributeLabels()
-    {
-        return [
-            'id' => 'ID',
-            'nome' => 'Nome',
-            'email' => 'E-mail',
-            'cpf' => 'CPF',
-            'telefone' => 'Telefone',
-            'tipo' => 'Tipo',
-            'status' => 'Status',
-            'ultimo_login_at' => 'Último Login',
-            'created_at' => 'Cadastro',
-        ];
-    }
-
-    // ========== MÉTODOS DE SENHA ==========
     
-    public function setPassword($senha)
-    {
-        $this->senha_hash = Yii::$app->security->generatePasswordHash($senha);
-    }
-
-    public function validatePassword($senha)
-    {
-        return Yii::$app->security->validatePassword($senha, $this->senha_hash);
-    }
-
-    // ========== MÉTODOS DE AUTENTICAÇÃO ==========
+    // ========== IMPLEMENTAÇÃO DO IDENTITY INTERFACE ==========
     
-    public function generateAuthKey()
-    {
-        $this->auth_key = Yii::$app->security->generateRandomString();
-    }
-
-    public function generateAccessToken()
-    {
-        $this->access_token = Yii::$app->security->generateRandomString(32);
-        $this->access_token_expires_at = date('Y-m-d H:i:s', strtotime('+30 days'));
-        $this->save(false);
-        return $this->access_token;
-    }
-
-    public function isTokenValido()
-    {
-        if (empty($this->access_token_expires_at)) {
-            return false;
-        }
-        return strtotime($this->access_token_expires_at) > time();
-    }
-
-    // ========== MÉTODOS DE STATUS ==========
-    
-    public function isAtivo()
-    {
-        return $this->status == self::STATUS_ATIVO;
-    }
-
-    public function isAdmin()
-    {
-        return $this->tipo === self::TIPO_ADMIN;
-    }
-
-    // ========== MÉTODOS DE LOGIN ==========
-    
-    public function registrarLogin()
-    {
-        $this->ultimo_login_at = date('Y-m-d H:i:s');
-        $this->ultimo_login_ip = Yii::$app->request->userIP;
-        $this->save(false);
-    }
-
-    // ========== IDENTITY INTERFACE ==========
-    
+    /**
+     * Busca usuário pelo ID
+     */
     public static function findIdentity($id)
     {
         return static::findOne(['id' => $id, 'status' => self::STATUS_ATIVO]);
     }
-
+    
+    /**
+     * Busca usuário pelo token de acesso
+     * Este método é chamado automaticamente pelo Yii
+     */
     public static function findIdentityByAccessToken($token, $type = null)
     {
-        return static::findOne([
-            'access_token' => $token,
-            'status' => self::STATUS_ATIVO
-        ]);
+        return static::find()
+            ->where(['access_token' => $token])
+            ->andWhere(['>', 'access_token_expira_em', date('Y-m-d H:i:s')])
+            ->andWhere(['status' => self::STATUS_ATIVO])
+            ->andWhere(['deletado_em' => null])
+            ->one();
     }
-
+    
+    /**
+     * Busca usuário pelo refresh token
+     */
+    public static function findByRefreshToken($refreshToken)
+    {
+        return static::find()
+            ->where(['refresh_token' => $refreshToken])
+            ->andWhere(['>', 'refresh_token_expira_em', date('Y-m-d H:i:s')])
+            ->andWhere(['status' => self::STATUS_ATIVO])
+            ->andWhere(['deletado_em' => null])
+            ->one();
+    }
+    
+    /**
+     * Busca usuário pelo email
+     */
     public static function findByEmail($email)
     {
-        return static::findOne(['email' => $email]);
+        return static::find()
+            ->where(['email' => $email])
+            ->andWhere(['deletado_em' => null])
+            ->one();
     }
-
+    
+    /**
+     * Retorna ID do usuário
+     */
     public function getId()
     {
         return $this->id;
     }
-
+    
+    /**
+     * Retorna auth key (usado para cookie-based login)
+     */
     public function getAuthKey()
     {
         return $this->auth_key;
     }
-
+    
+    /**
+     * Valida auth key
+     */
     public function validateAuthKey($authKey)
     {
         return $this->auth_key === $authKey;
     }
-
-    // ========== QUERIES ==========
     
-    public static function find()
+    // ========== MÉTODOS DE AUTENTICAÇÃO ==========
+    
+    /**
+     * Gera auth key
+     */
+    public function generateAuthKey()
     {
-        return parent::find()->andWhere(['deleted_at' => null]);
+        $this->auth_key = Yii::$app->security->generateRandomString();
+    }
+    
+    /**
+     * Gera hash da senha
+     */
+    public function setPassword($password)
+    {
+        $this->senha_hash = Yii::$app->security->generatePasswordHash($password);
+    }
+    
+    /**
+     * Valida senha
+     */
+    public function validatePassword($password)
+    {
+        return Yii::$app->security->validatePassword($password, $this->senha_hash);
+    }
+    
+    // ========== MÉTODOS DE TOKEN ==========
+    
+    /**
+     * Gera novo access token
+     * @param int $duracaoSegundos Tempo de expiração em segundos
+     * @return string
+     */
+    public function generateAccessToken($duracaoSegundos = 7200) // 2 horas padrão
+    {
+        // Gera token único
+        $this->access_token = Yii::$app->security->generateRandomString(64);
+        $this->access_token_expira_em = date('Y-m-d H:i:s', time() + $duracaoSegundos);
+        
+        $this->save(false);
+        
+        return $this->access_token;
+    }
+    
+    /**
+     * Gera novo refresh token
+     * @param int $duracaoSegundos Tempo de expiração em segundos
+     * @return string
+     */
+    public function generateRefreshToken($duracaoSegundos = 2592000) // 30 dias padrão
+    {
+        $this->refresh_token = Yii::$app->security->generateRandomString(64);
+        $this->refresh_token_expira_em = date('Y-m-d H:i:s', time() + $duracaoSegundos);
+        
+        $this->save(false);
+        
+        return $this->refresh_token;
+    }
+    
+    /**
+     * Invalida todos os tokens do usuário (logout)
+     */
+    public function invalidateTokens()
+    {
+        $this->access_token = null;
+        $this->access_token_expira_em = null;
+        $this->refresh_token = null;
+        $this->refresh_token_expira_em = null;
+        
+        return $this->save(false);
+    }
+    
+    /**
+     * Verifica se access token é válido
+     */
+    public function isAccessTokenValid()
+    {
+        return !empty($this->access_token) && 
+               strtotime($this->access_token_expira_em) > time();
+    }
+    
+    /**
+     * Verifica se refresh token é válido
+     */
+    public function isRefreshTokenValid()
+    {
+        return !empty($this->refresh_token) && 
+               strtotime($this->refresh_token_expira_em) > time();
+    }
+    
+    // ========== MÉTODOS AUXILIARES ==========
+    
+    /**
+     * Verifica se usuário está ativo
+     */
+    public function isAtivo()
+    {
+        return $this->status == self::STATUS_ATIVO && $this->deletado_em === null;
     }
 }

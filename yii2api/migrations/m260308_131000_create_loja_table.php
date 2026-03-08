@@ -2,23 +2,17 @@
 
 use yii\db\Migration;
 
-/**
- * Handles the creation of table `{{%lojista_lojas}}`.
- * Relacionamento: 1 lojista (usuário) → N lojas
- * Uma loja pode ter vários usuários (proprietário, gerentes, etc)
- */
-class m260302_121311_create_lojista_lojas_table extends Migration
+class m260308_131000_create_loja_table extends Migration
 {
     public function safeUp()
     {
-        $this->createTable('{{%lojista_lojas}}', [
-            // ========== CHAVE PRIMÁRIA ==========
+        $this->createTable('{{%loja}}', [
             'id' => $this->primaryKey(),
             
             // ========== IDENTIFICAÇÃO ==========
             'nome' => $this->string(255)->notNull(),
+            'descricao' => $this->text(),
             'slug' => $this->string(255)->notNull()->unique(),
-            'descricao' => $this->text()->null(),
             
             // ========== CATEGORIA ==========
             'categoria' => $this->string(100)->notNull(),
@@ -32,8 +26,8 @@ class m260302_121311_create_lojista_lojas_table extends Migration
             'total_avaliacoes' => $this->integer()->defaultValue(0),
             
             // ========== ENTREGA ==========
-            'tempo_entrega_min' => $this->integer()->notNull()->comment('minutos'),
-            'tempo_entrega_max' => $this->integer()->notNull()->comment('minutos'),
+            'tempo_entrega_min' => $this->integer()->notNull(),
+            'tempo_entrega_max' => $this->integer()->notNull(),
             'taxa_entrega' => $this->decimal(10,2)->defaultValue(0),
             'pedido_minimo' => $this->decimal(10,2)->defaultValue(0),
             
@@ -53,43 +47,38 @@ class m260302_121311_create_lojista_lojas_table extends Migration
             'whatsapp' => $this->string(20)->null(),
             'email' => $this->string(255)->null(),
             'instagram' => $this->string(255)->null(),
-            'site' => $this->string(255)->null(),
-            
-            // ========== HORÁRIOS ==========
-            'horario_funcionamento' => $this->json()->null()->comment('ex: {"segunda": "08-18", "terca": "08-18"}'),
             
             // ========== STATUS ==========
             'status' => "ENUM('ativo', 'inativo', 'fechado', 'revisao') NOT NULL DEFAULT 'revisao'",
             'verificado' => $this->boolean()->defaultValue(false),
             'destaque' => $this->boolean()->defaultValue(false),
             
-            // ========== CONFIGURAÇÕES ==========
-            'configuracoes' => $this->json()->null()->comment('configurações específicas da loja'),
+            // ========== CAMPOS INOVADORES ==========
+            'trending_score' => $this->integer()->defaultValue(0),
+            'fluxo_status' => "ENUM('vazio', 'normal', 'cheio', 'lotado') NOT NULL DEFAULT 'normal'",
+            'cor_tema' => $this->string(7)->defaultValue('#FF6B6B'),
             
-            // ========== METADADOS ==========
-            'metadata' => $this->json()->null(),
+            // ========== CONFIGURAÇÕES ==========
+            'configuracoes' => $this->json()->null(),
             
             // ========== TIMESTAMPS ==========
-            'created_at' => $this->timestamp()->defaultExpression('CURRENT_TIMESTAMP'),
-            'updated_at' => $this->timestamp()->defaultExpression('CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP'),
-            'deleted_at' => $this->timestamp()->null(),
+            'criado_em' => $this->timestamp()->defaultExpression('CURRENT_TIMESTAMP'),
+            'atualizado_em' => $this->timestamp()->defaultExpression('CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP'),
+            'deletado_em' => $this->timestamp()->null(),
         ], $this->getTableOptions());
 
         // ========== ÍNDICES ==========
-        $this->createIndex('idx-lojista_lojas-slug', '{{%lojista_lojas}}', 'slug');
-        $this->createIndex('idx-lojista_lojas-categoria', '{{%lojista_lojas}}', 'categoria');
-        $this->createIndex('idx-lojista_lojas-status', '{{%lojista_lojas}}', 'status');
-        $this->createIndex('idx-lojista_lojas-nota_media', '{{%lojista_lojas}}', 'nota_media');
-        $this->createIndex('idx-lojista_lojas-destaque', '{{%lojista_lojas}}', 'destaque');
-        $this->createIndex('idx-lojista_lojas-cidade', '{{%lojista_lojas}}', 'cidade');
-        
-        // ========== COMENTÁRIO ==========
-        $this->addCommentOnTable('{{%lojista_lojas}}', 'Lojas cadastradas no sistema (para usuários lojistas)');
+        $this->createIndex('idx-loja-slug', '{{%loja}}', 'slug');
+        $this->createIndex('idx-loja-categoria', '{{%loja}}', 'categoria');
+        $this->createIndex('idx-loja-status', '{{%loja}}', 'status');
+        $this->createIndex('idx-loja-nota_media', '{{%loja}}', 'nota_media');
+        $this->createIndex('idx-loja-trending_score', '{{%loja}}', 'trending_score');
+        $this->createIndex('idx-loja-cidade', '{{%loja}}', 'cidade');
     }
 
     public function safeDown()
     {
-        $this->dropTable('{{%lojista_lojas}}');
+        $this->dropTable('{{%loja}}');
     }
     
     private function getTableOptions()

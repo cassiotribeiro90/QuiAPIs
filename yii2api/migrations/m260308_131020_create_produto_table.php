@@ -2,27 +2,11 @@
 
 use yii\db\Migration;
 
-/**
- * Migration para criação da tabela de produtos
- * 
- * Relacionamentos:
- * - 1 produto → 1 loja (obrigatório)
- * - 1 produto → 1 subcategoria (opcional)
- * 
- * Badge tipos (selos):
- *   - fogo     (🔥 Bombando)
- *   - estrela  (⭐ Destaque)
- *   - folha    (🌱 Vegano)
- *   - coracao  (❤️ Recomendado)
- *   - novo     (🆕 Novidade)
- *   - premio   (�🏻 Prêmio)
- *   - porcentagem (% Off)
- */
-class m260228_232044_create_produtos_table extends Migration
+class m260308_131020_create_produto_table extends Migration
 {
     public function safeUp()
     {
-        $this->createTable('{{%produtos}}', [
+        $this->createTable('{{%produto}}', [
             'id' => $this->primaryKey(),
             
             // ========== RELACIONAMENTOS ==========
@@ -32,7 +16,7 @@ class m260228_232044_create_produtos_table extends Migration
             // ========== IDENTIFICAÇÃO ==========
             'nome' => $this->string(255)->notNull(),
             'descricao' => $this->text(),
-            'slug' => $this->string(255)->unique(),
+            'slug' => $this->string(255)->notNull()->unique(),
             
             // ========== PREÇOS ==========
             'preco' => $this->decimal(10,2)->notNull(),
@@ -43,7 +27,7 @@ class m260228_232044_create_produtos_table extends Migration
             'imagens' => $this->json()->null(),
             
             // ========== COMPOSIÇÃO ==========
-            'ingredientes' => $this->json()->null()->comment('Lista de ingredientes'),
+            'ingredientes' => $this->json()->null(),
             'ingredientes_texto' => $this->text()->null(),
             'calorias' => $this->integer()->null(),
             'peso_gramas' => $this->integer()->null(),
@@ -55,26 +39,18 @@ class m260228_232044_create_produtos_table extends Migration
             'vegetariano' => $this->boolean()->defaultValue(false),
             'apimentado' => $this->boolean()->defaultValue(false),
             
-            // ========== 🚀 CAMPOS INOVADORES ==========
-            
-            // 🔥 Selos especiais (códigos)
-            'selos' => $this->json()->null()->comment('["bombando", "novidade", "chef", "premio"]'),
-            
-            // ⏰ Disponibilidade por período
+            // ========== CAMPOS INOVADORES ==========
+            'selos' => $this->json()->null(),
             'disponivel_inicio' => $this->time()->null(),
             'disponivel_fim' => $this->time()->null(),
-            'disponivel_dias' => $this->json()->null()->comment('[1,2,3,4,5,6,7]'),
-            
-            // 📈 Métricas em tempo real
-            'ultima_venda_at' => $this->timestamp()->null(),
+            'disponivel_dias' => $this->json()->null(),
+            'ultima_venda_em' => $this->timestamp()->null(),
             'vendas_hoje' => $this->integer()->defaultValue(0),
             
-            // ========== VARIAÇÕES E OPÇÕES ==========
-            'variacoes' => $this->json()->null()->comment('{"tamanhos": ["P", "M", "G"], "precos": [10,15,20]}'),
-            'opcoes' => $this->json()->null()->comment('{"sabores": ["choc", "mor"], "adicionais": ["bacon"]}'),
-            
-            // ========== PREPARO ==========
-            'tempo_preparo_min' => $this->integer(),
+            // ========== VARIAÇÕES ==========
+            'variacoes' => $this->json()->null(),
+            'opcoes' => $this->json()->null(),
+            'tempo_preparo_min' => $this->integer()->null(),
             
             // ========== DISPONIBILIDADE ==========
             'disponivel' => $this->boolean()->defaultValue(true),
@@ -96,35 +72,52 @@ class m260228_232044_create_produtos_table extends Migration
             'destaque' => $this->boolean()->defaultValue(false),
             
             // ========== TIMESTAMPS ==========
-            'created_at' => $this->timestamp()->defaultExpression('CURRENT_TIMESTAMP'),
-            'updated_at' => $this->timestamp()->defaultExpression('CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP'),
-            'deleted_at' => $this->timestamp()->null(),
-        ]);
+            'criado_em' => $this->timestamp()->defaultExpression('CURRENT_TIMESTAMP'),
+            'atualizado_em' => $this->timestamp()->defaultExpression('CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP'),
+            'deletado_em' => $this->timestamp()->null(),
+        ], $this->getTableOptions());
 
         // ========== CHAVES ESTRANGEIRAS ==========
         $this->addForeignKey(
-            'fk-produtos-loja_id',
-            '{{%produtos}}',
+            'fk-produto-loja_id',
+            '{{%produto}}',
             'loja_id',
-            '{{%lojas}}',
+            '{{%loja}}',
             'id',
             'CASCADE'
         );
 
+        $this->addForeignKey(
+            'fk-produto-subcategoria_id',
+            '{{%produto}}',
+            'subcategoria_id',
+            '{{%subcategoria}}',
+            'id',
+            'SET NULL'
+        );
+
         // ========== ÍNDICES ==========
-        $this->createIndex('idx-produtos-loja_id', '{{%produtos}}', 'loja_id');
-        $this->createIndex('idx-produtos-subcategoria_id', '{{%produtos}}', 'subcategoria_id');
-        $this->createIndex('idx-produtos-nota_media', '{{%produtos}}', 'nota_media');
-        $this->createIndex('idx-produtos-ativo', '{{%produtos}}', 'ativo');
-        $this->createIndex('idx-produtos-destaque', '{{%produtos}}', 'destaque');
-        $this->createIndex('idx-produtos-vegano', '{{%produtos}}', 'vegano');
-        $this->createIndex('idx-produtos-disponivel', '{{%produtos}}', 'disponivel');
+        $this->createIndex('idx-produto-slug', '{{%produto}}', 'slug');
+        $this->createIndex('idx-produto-loja_id', '{{%produto}}', 'loja_id');
+        $this->createIndex('idx-produto-subcategoria_id', '{{%produto}}', 'subcategoria_id');
+        $this->createIndex('idx-produto-ativo', '{{%produto}}', 'ativo');
+        $this->createIndex('idx-produto-destaque', '{{%produto}}', 'destaque');
+        $this->createIndex('idx-produto-nota_media', '{{%produto}}', 'nota_media');
     }
 
     public function safeDown()
     {
-        $this->dropForeignKey('fk-produtos-subcategoria_id', '{{%produtos}}');
-        $this->dropForeignKey('fk-produtos-loja_id', '{{%produtos}}');
-        $this->dropTable('{{%produtos}}');
+        $this->dropForeignKey('fk-produto-subcategoria_id', '{{%produto}}');
+        $this->dropForeignKey('fk-produto-loja_id', '{{%produto}}');
+        $this->dropTable('{{%produto}}');
+    }
+    
+    private function getTableOptions()
+    {
+        $driver = $this->db->driverName;
+        if ($driver === 'mysql') {
+            return 'CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci ENGINE=InnoDB';
+        }
+        return null;
     }
 }
