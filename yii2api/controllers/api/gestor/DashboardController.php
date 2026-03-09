@@ -34,10 +34,10 @@ class DashboardController extends ControllerBase
                     'ultima_atualizacao' => date('Y-m-d H:i:s'),
                 ],
                 'faturamento' => [
-                    'hoje' => 'R$ 5.420,00',
-                    'semana' => 'R$ 23.850,00',
-                    'mes' => 'R$ 189.450,00',
-                    'ano' => 'R$ 1.452.780,00',
+                    'hoje' => 'R$ 5.420',
+                    'semana' => 'R$ 23.850',
+                    'mes' => 'R$ 189.450',
+                    'ano' => 'R$ 1.452.780',
                 ],
                 'metricas' => [
                     'ticket_medio' => 'R$ 52,30',

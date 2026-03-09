@@ -128,7 +128,8 @@ class GestorUsuario extends ActiveRecord implements IdentityInterface
      * @param int $duracaoSegundos Tempo de expiração em segundos
      * @return string
      */
-    public function generateAccessToken($duracaoSegundos = 7200) // 2 horas padrão
+    //public function generateAccessToken($duracaoSegundos = 7200) // 2 horas padrão
+    public function generateAccessToken($duracaoSegundos = 900) // 15 minutos para testes
     {
         // Gera token único
         $this->access_token = Yii::$app->security->generateRandomString(64);
@@ -144,7 +145,8 @@ class GestorUsuario extends ActiveRecord implements IdentityInterface
      * @param int $duracaoSegundos Tempo de expiração em segundos
      * @return string
      */
-    public function generateRefreshToken($duracaoSegundos = 2592000) // 30 dias padrão
+    //public function generateRefreshToken($duracaoSegundos = 2592000) // 30 dias padrão
+    public function generateRefreshToken($duracaoSegundos = 3600) // 1h para testes
     {
         $this->refresh_token = Yii::$app->security->generateRandomString(64);
         $this->refresh_token_expira_em = date('Y-m-d H:i:s', time() + $duracaoSegundos);
