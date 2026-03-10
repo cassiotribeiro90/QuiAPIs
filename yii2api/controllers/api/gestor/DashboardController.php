@@ -16,7 +16,7 @@ class DashboardController extends ControllerBase
     public function actionIndex()
     {
         try {
-            parent::getUserByToken(); // Apenas autenticado
+           $this->getUserByToken(); // Apenas autenticado
             
             // Dados mockados por enquanto
             $dados = [
@@ -64,7 +64,7 @@ class DashboardController extends ControllerBase
     public function actionGraficos()
     {
         try {
-            parent::getUserByToken();
+            $this->getUserByToken();
             
             return ApiResponse::success([
                 'vendas_ultimos_30_dias' => [

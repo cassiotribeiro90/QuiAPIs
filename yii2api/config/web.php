@@ -76,19 +76,19 @@ $config = [
             'enableStrictParsing' => false,
             'rules' => [
 
-                // API App
+                // API App -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
                 'GET app/produto' => 'api/app/produto/index',
                 'GET app/produto/<id:\d+>' => 'api/app/produto/view',
                 'POST app/produto' => 'api/app/produto/create', 
 
-                 // API Lojista
+                 // API Lojista -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
                 'GET lojista/pedido' => 'api/lojista/pedido/index',
                 'GET lojista/pedido/<id:\d+>' => 'api/lojista/pedido/view',
                 'POST lojista/pedido' => 'api/lojista/pedido/create',
                 'POST auth-lojista/create' => 'auth-lojista/create',
                 'POST auth-lojista/login' => 'auth-lojista/login',
 
-                // API Gestor
+                // API Gestor =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
                 // Usuarios do painel gestor
                 'api/gestor/gestor-usuarios' => 'api/gestor/gestor-usuarios/index',
                 'api/gestor/gestor-usuarios/<id:\d+>' => 'api/gestor/gestor-usuarios/view',
@@ -104,6 +104,30 @@ $config = [
                 // Dashboard do Gestor
                 'api/gestor/dashboard' => 'api/gestor/dashboard/index',
                 'api/gestor/dashboard/graficos' => 'api/gestor/dashboard/graficos',
+
+                // Lojas do Gestor
+                'api/gestor/lojas' => 'api/gestor/loja/index',
+                'api/gestor/lojas/<id:\d+>' => 'api/gestor/loja/view',
+                'api/gestor/lojas/create' => 'api/gestor/loja/create',
+                'api/gestor/lojas/update/<id:\d+>' => 'api/gestor/loja/update',
+                'api/gestor/lojas/delete/<id:\d+>' => 'api/gestor/loja/delete',
+                'api/gestor/lojas/options' => 'api/gestor/loja/options',
+
+                // Rotas para Categorias
+                'api/gestor/categorias' => 'api/gestor/categoria/index',
+                'api/gestor/categorias/<id:\d+>' => 'api/gestor/categoria/view',
+                'api/gestor/categorias/create' => 'api/gestor/categoria/create',
+                'api/gestor/categorias/update/<id:\d+>' => 'api/gestor/categoria/update',
+                'api/gestor/categorias/delete/<id:\d+>' => 'api/gestor/categoria/delete',
+                'api/gestor/categorias/options' => 'api/gestor/categoria/options',
+
+                // Rotas para Subcategorias
+                'api/gestor/subcategorias' => 'api/gestor/subcategoria/index',
+                'api/gestor/subcategorias/<id:\d+>' => 'api/gestor/subcategoria/view',
+                'api/gestor/subcategorias/create' => 'api/gestor/subcategoria/create',
+                'api/gestor/subcategorias/update/<id:\d+>' => 'api/gestor/subcategoria/update',
+                'api/gestor/subcategorias/delete/<id:\d+>' => 'api/gestor/subcategoria/delete',
+                'api/gestor/subcategorias/options' => 'api/gestor/subcategoria/options',
             ],
         ],
     ],
