@@ -15,11 +15,11 @@ class GestorUsuariosController extends ControllerBase
     /**
      * GET /api/gestor/gestor-usuarios
      * Lista todos os gestores com paginação
-     */
+     */  
     public function actionIndex()
     {
         try {
-            $usuarioLogado = $this->getUserFromToken();
+            $usuarioLogado = $this->getUserByToken();
             
             // Se não for admin, retorna apenas seus próprios dados
             if ($usuarioLogado->nivel !== 'admin') {
@@ -91,7 +91,7 @@ class GestorUsuariosController extends ControllerBase
     public function actionView($id)
     {
         try {
-            $usuarioLogado = $this->getUserFromToken();
+            $usuarioLogado = $this->getUserByToken();
             $gestor = $this->findModel($id);
             
             // Verifica permissão
@@ -162,6 +162,7 @@ class GestorUsuariosController extends ControllerBase
             $gestor->save(false);
             
             // Gera tokens
+            /** @var GestorUsuario $gestor */
             $accessToken = $gestor->generateAccessToken();
             $refreshToken = $gestor->generateRefreshToken();
             
@@ -193,7 +194,7 @@ class GestorUsuariosController extends ControllerBase
     {
         try {
             /** @var GestorUsuario $gestor */
-            $gestor = $this->getUserFromToken();
+            $gestor = $this->getUserByToken();
             
             if ($gestor) {
                 $gestor->invalidateTokens();
@@ -217,7 +218,7 @@ class GestorUsuariosController extends ControllerBase
     public function actionMe()
     {
         try {
-            $gestor = $this->getUserFromToken();
+            $gestor = $this->getUserByToken();
             
             return ApiResponse::success(
                 $this->formatarGestor($gestor, true),
@@ -242,7 +243,8 @@ class GestorUsuariosController extends ControllerBase
         try {
             // Verifica se é admin (descomente se necessário)
             // $this->verificarAdmin();
-            
+            $this->getUserByToken();
+    
             $request = Yii::$app->request;
             $dados = $request->post();
             
@@ -318,7 +320,7 @@ class GestorUsuariosController extends ControllerBase
                 return ApiResponse::success(
                     array_merge(
                         $this->formatarGestor($gestor, true),
-                        ['access_token' => $token]
+                        // ['access_token' => $token]
                     ),
                     'Gestor cadastrado com sucesso',
                     201
@@ -342,13 +344,69 @@ class GestorUsuariosController extends ControllerBase
     }
 
     /**
+     * DELETE /api/gestor/gestor-usuarios/delete/<id>
+     * Remove (soft delete) um gestor
+     */
+    public function actionDelete($id)
+    {
+        try {
+            $usuarioLogado = $this->getUserByToken();
+            
+            // Apenas admin pode deletar
+            if ($usuarioLogado->nivel !== 'admin') {
+                return ApiResponse::error(
+                    'Apenas administradores podem remover usuários',
+                    403,
+                    'forbidden'
+                );
+            }
+            
+            // Não permite deletar a si mesmo
+            if ($usuarioLogado->id == $id) {
+                return ApiResponse::error(
+                    'Você não pode remover seu próprio usuário',
+                    400,
+                    'self_delete_not_allowed'
+                );
+            }
+            
+            $gestor = $this->findModel($id);
+            
+            // Soft delete
+            $gestor->deletado_em = date('Y-m-d H:i:s');
+            $gestor->status = GestorUsuario::STATUS_INATIVO;
+            $gestor->invalidateTokens(); // Invalida tokens do usuário deletado
+            
+            if ($gestor->save(false)) {
+                return ApiResponse::success(
+                    null,
+                    'Gestor removido com sucesso'
+                );
+            }
+            
+            return ApiResponse::error(
+                'Erro ao remover gestor',
+                500,
+                'delete_failed'
+            );
+            
+        } catch (\Exception $e) {
+            return ApiResponse::error(
+                $e->getMessage(),
+                $e->statusCode ?? 500,
+                'internal_error'
+            );
+        }
+    }
+
+    /**
      * PUT /api/gestor/gestor-usuarios/update/<id>
      * Atualiza um gestor
      */
     public function actionUpdate($id)
     {
         try {
-            $usuarioLogado = $this->getUserFromToken();
+            $usuarioLogado = $this->getUserByToken();
             $gestor = $this->findModel($id);
             
             // Verifica permissão
@@ -437,58 +495,7 @@ class GestorUsuariosController extends ControllerBase
         }
     }
 
-    /**
-     * DELETE /api/gestor/gestor-usuarios/delete/<id>
-     * Remove (soft delete) um gestor
-     */
-    public function actionDelete($id)
-    {
-        try {
-            $usuarioLogado = $this->getUserFromToken();
-            
-            // Apenas admin pode deletar
-            if ($usuarioLogado->nivel !== 'admin') {
-                return ApiResponse::error(
-                    'Apenas administradores podem remover usuários',
-                    403,
-                    'forbidden'
-                );
-            }
-            
-            // Não permite deletar a si mesmo
-            if ($usuarioLogado->id == $id) {
-                return ApiResponse::error(
-                    'Você não pode remover seu próprio usuário',
-                    400,
-                    'self_delete_not_allowed'
-                );
-            }
-            
-            $gestor = $this->findModel($id);
-            
-            // Soft delete
-            $gestor->deletado_em = date('Y-m-d H:i:s');
-            $gestor->status = GestorUsuario::STATUS_INATIVO;
-            $gestor->invalidateTokens();
-            
-            if ($gestor->save(false)) {
-                return ApiResponse::success(null, 'Gestor removido com sucesso');
-            }
-            
-            return ApiResponse::error(
-                'Erro ao remover gestor',
-                500,
-                'delete_failed'
-            );
-            
-        } catch (\Exception $e) {
-            return ApiResponse::error(
-                $e->getMessage(),
-                $e->statusCode ?? 500,
-                'internal_error'
-            );
-        }
-    }
+    
 
     /**
      * POST /api/gestor/gestor-usuarios/refresh-token
@@ -536,7 +543,7 @@ class GestorUsuariosController extends ControllerBase
             return ApiResponse::success([
                 'access_token' => $novoAccessToken,
                 'refresh_token' => $novoRefreshToken,
-                'expires_in' => 7200,
+                'expires_in' => 86400,
                 'token_type' => 'Bearer'
             ], 'Token renovado com sucesso');
             
@@ -556,7 +563,7 @@ class GestorUsuariosController extends ControllerBase
     public function actionCheckToken()
     {
         try {
-            $this->getUserFromToken();
+            $this->getUserByToken();
             return ApiResponse::success(
                 ['valid' => true],
                 'Token válido'
@@ -578,7 +585,7 @@ class GestorUsuariosController extends ControllerBase
     public function actionOptions()
     {
         try {
-            $this->getUserFromToken(); // Apenas autenticado
+            $this->getUserByToken();
             
             return ApiResponse::success([
                 'niveis' => [
@@ -603,26 +610,7 @@ class GestorUsuariosController extends ControllerBase
         }
     }
 
-    /**
-     * Extrai usuário do token no header
-     */
-    private function getUserFromToken()
-    {
-        $authHeader = Yii::$app->request->headers->get('Authorization');
-        
-        if (!$authHeader || !preg_match('/^Bearer\s+(.*?)$/', $authHeader, $matches)) {
-            throw new \yii\web\UnauthorizedHttpException('Token não fornecido');
-        }
-        
-        $token = $matches[1];
-        $gestor = GestorUsuario::findIdentityByAccessToken($token);
-        
-        if (!$gestor) {
-            throw new \yii\web\UnauthorizedHttpException('Token inválido ou expirado');
-        }
-        
-        return $gestor;
-    }
+
 
     /**
      * Busca model pelo ID
@@ -702,7 +690,7 @@ class GestorUsuariosController extends ControllerBase
      */
     private function verificarAdmin()
     {
-        $gestor = $this->getUserFromToken();
+        $gestor = $this->getUserByToken();
         
         if ($gestor->nivel !== 'admin') {
             throw new \yii\web\ForbiddenHttpException('Acesso negado. Apenas administradores podem executar esta ação.');

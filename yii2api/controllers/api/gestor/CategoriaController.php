@@ -20,7 +20,7 @@ class CategoriaController extends ControllerBase
     public function actionIndex()
     {
         try {
-            $this->getUserFromToken();
+            $this->getUserByToken();
 
             $request = Yii::$app->request;
 
@@ -83,7 +83,7 @@ class CategoriaController extends ControllerBase
     public function actionView($id)
     {
         try {
-            $this->getUserFromToken();
+            $this->getUserByToken();
             $categoria = $this->findModel($id);
 
             return ApiResponse::success(
@@ -107,7 +107,7 @@ class CategoriaController extends ControllerBase
     public function actionCreate()
     {
         try {
-            $this->getUserFromToken();
+            $this->getUserByToken();
 
             $dados = Yii::$app->request->post();
 
@@ -165,7 +165,7 @@ class CategoriaController extends ControllerBase
     public function actionUpdate($id)
     {
         try {
-            $this->getUserFromToken();
+            $this->getUserByToken();
             $categoria = $this->findModel($id);
 
             $dados = Yii::$app->request->post();
@@ -219,7 +219,7 @@ class CategoriaController extends ControllerBase
     public function actionDelete($id)
     {
         try {
-            $usuarioLogado = $this->getUserFromToken();
+            $usuarioLogado = $this->getUserByToken();
 
             // Apenas admin pode deletar
             if ($usuarioLogado->nivel !== 'admin') {
@@ -267,7 +267,7 @@ class CategoriaController extends ControllerBase
     public function actionOptions()
     {
         try {
-            $this->getUserFromToken();
+            $this->getUserByToken();
 
             $categorias = Categoria::find()
                 ->select(['id', 'nome', 'cor', 'icone'])
@@ -321,7 +321,6 @@ class CategoriaController extends ControllerBase
             $dados = array_merge($dados, [
                 'descricao' => $categoria->descricao,
                 'imagem' => $categoria->imagem,
-                'metadata' => $categoria->metadata,
                 'criado_em' => $categoria->criado_em,
                 'atualizado_em' => $categoria->atualizado_em,
                 'total_subcategorias' => $categoria->getSubcategorias()->count(),
@@ -336,7 +335,7 @@ class CategoriaController extends ControllerBase
      */
     private function popularCategoria($categoria, $dados)
     {
-        $campos = ['nome', 'descricao', 'icone', 'imagem', 'cor', 'ordem', 'ativo', 'destaque', 'metadata'];
+        $campos = ['nome', 'descricao', 'icone', 'imagem', 'cor', 'ordem', 'ativo', 'destaque'];
         
         foreach ($campos as $campo) {
             if (isset($dados[$campo])) {

@@ -19,8 +19,8 @@ class GestorUsuario extends ActiveRecord implements IdentityInterface
     const SCENARIO_UPDATE = 'update';
 
 
-    const TOKEN_AUTH_SECS = 120; // 2 min
-    // const TOKEN_AUTH_SECS = 86400; // 12 hours
+    // const TOKEN_AUTH_SECS = 120; // 2 min
+    const TOKEN_AUTH_SECS = 86400; // 12 hours
     const TOKEN_REFRESH_SECS = 5184000; // 2 months
 
 

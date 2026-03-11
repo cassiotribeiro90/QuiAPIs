@@ -110,6 +110,7 @@ $config = [
                 'api/gestor/lojas/<id:\d+>' => 'api/gestor/loja/view',
                 'api/gestor/lojas/create' => 'api/gestor/loja/create',
                 'api/gestor/lojas/update/<id:\d+>' => 'api/gestor/loja/update',
+                'api/gestor/lojas/update/<id:\d+>' => 'api/gestor/loja/update',
                 'api/gestor/lojas/delete/<id:\d+>' => 'api/gestor/loja/delete',
                 'api/gestor/lojas/options' => 'api/gestor/loja/options',
 

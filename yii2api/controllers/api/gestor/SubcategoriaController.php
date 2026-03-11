@@ -21,7 +21,7 @@ class SubcategoriaController extends ControllerBase
     public function actionIndex()
     {
         try {
-            $this->getUserFromToken();
+            $this->getUserByToken();
 
             $request = Yii::$app->request;
 
@@ -84,7 +84,7 @@ class SubcategoriaController extends ControllerBase
     public function actionView($id)
     {
         try {
-            $this->getUserFromToken();
+            $this->getUserByToken();
             $subcategoria = $this->findModel($id);
 
             return ApiResponse::success(
@@ -108,7 +108,7 @@ class SubcategoriaController extends ControllerBase
     public function actionCreate()
     {
         try {
-            $this->getUserFromToken();
+            $this->getUserByToken();
 
             $dados = Yii::$app->request->post();
 
@@ -188,7 +188,7 @@ class SubcategoriaController extends ControllerBase
     public function actionUpdate($id)
     {
         try {
-            $this->getUserFromToken();
+            $this->getUserByToken();
             $subcategoria = $this->findModel($id);
 
             $dados = Yii::$app->request->post();
@@ -258,7 +258,7 @@ class SubcategoriaController extends ControllerBase
     public function actionDelete($id)
     {
         try {
-            $usuarioLogado = $this->getUserFromToken();
+            $usuarioLogado = $this->getUserByToken();
 
             // Apenas admin pode deletar
             if ($usuarioLogado->nivel !== 'admin') {
@@ -306,7 +306,7 @@ class SubcategoriaController extends ControllerBase
     public function actionOptions()
     {
         try {
-            $this->getUserFromToken();
+            $this->getUserByToken();
 
             $categoriaId = Yii::$app->request->get('categoria_id');
             
@@ -365,7 +365,6 @@ class SubcategoriaController extends ControllerBase
             $dados = array_merge($dados, [
                 'descricao' => $subcategoria->descricao,
                 'imagem' => $subcategoria->imagem,
-                'metadata' => $subcategoria->metadata,
                 'criado_em' => $subcategoria->criado_em,
                 'atualizado_em' => $subcategoria->atualizado_em,
                 'categoria_nome' => $subcategoria->categoria->nome ?? null,
@@ -380,7 +379,7 @@ class SubcategoriaController extends ControllerBase
      */
     private function popularSubcategoria($subcategoria, $dados)
     {
-        $campos = ['categoria_id', 'nome', 'descricao', 'icone', 'imagem', 'ordem', 'ativo', 'metadata'];
+        $campos = ['categoria_id', 'nome', 'descricao', 'icone', 'imagem', 'ordem', 'ativo'];
         
         foreach ($campos as $campo) {
             if (isset($dados[$campo])) {
