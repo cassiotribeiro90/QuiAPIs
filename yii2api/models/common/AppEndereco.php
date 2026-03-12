@@ -27,9 +27,9 @@ use yii\db\ActiveRecord;
  * @property bool $padrao
  * @property bool $ativo
  * @property array $metadata
- * @property string $created_at
- * @property string $updated_at
- * @property string $deleted_at
+ * @property string $criado_em
+ * @property string $atualizado_em
+ * @property string $deletado_em
  * 
  * @property AppUsuario $usuario
  */
@@ -109,7 +109,7 @@ class AppEndereco extends ActiveRecord
             'telefone_contato' => 'Telefone de Contato',
             'padrao' => 'Endereço Padrão',
             'ativo' => 'Ativo',
-            'created_at' => 'Criado em',
+            'criado_em' => 'Criado em',
         ];
     }
 

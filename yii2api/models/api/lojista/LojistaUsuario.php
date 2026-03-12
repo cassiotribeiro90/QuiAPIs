@@ -6,6 +6,21 @@ use Yii;
 use yii\db\ActiveRecord;
 use yii\web\IdentityInterface;
 
+/**
+ * @property int $id
+ * @property string $nome
+ * @property string $email
+ * @property string $senha_hash
+ * @property string $cpf_cnpj
+ * @property int $status
+ * @property string $role
+ * @property string $auth_key
+ * @property string $token_acesso
+ * @property string|null $ultimo_login_ip
+ * @property string|null $ultimo_login_em
+ * @property string $criado_em
+ * @property string $atualizado_em
+ */
 class LojistaUsuario extends ActiveRecord implements IdentityInterface
 {
     const STATUS_ATIVO = 1;
@@ -36,7 +51,7 @@ class LojistaUsuario extends ActiveRecord implements IdentityInterface
             [['auth_key'], 'string', 'max' => 32],
             [['token_acesso'], 'string', 'max' => 255],
             [['ultimo_login_ip'], 'string', 'max' => 45],
-            [['ultimo_login_at', 'created_at', 'updated_at'], 'safe'],
+            [['ultimo_login_em', 'criado_em', 'atualizado_em'], 'safe'],
         ];
     }
 

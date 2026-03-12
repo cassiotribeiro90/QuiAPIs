@@ -24,7 +24,7 @@ use yii\web\IdentityInterface;
  * @property string $password_reset_expires_at
  * @property string $tipo
  * @property string $status
- * @property string $ultimo_login_at
+ * @property string $ultimo_login_em
  * @property string $ultimo_login_ip
  * @property int $login_count
  * @property string $primeira_compra_at
@@ -43,9 +43,9 @@ use yii\web\IdentityInterface;
  * @property bool $email_verified
  * @property bool $termos_aceitos
  * @property string $termos_aceitos_at
- * @property string $created_at
- * @property string $updated_at
- * @property string $deleted_at
+ * @property string $criado_em
+ * @property string $atualizado_em
+ * @property string $deletado_em
  * 
  * ========== NOVOS CAMPOS SOCIAIS ==========
  * @property string $google_id
@@ -119,8 +119,8 @@ class AppUsuario extends ActiveRecord implements IdentityInterface
             'tipo' => 'Tipo',
             'pontos' => 'Pontos',
             'nivel' => 'Nível',
-            'created_at' => 'Cadastro',
-            'ultimo_login_at' => 'Último Login',
+            'criado_em' => 'Cadastro',
+            'ultimo_login_em' => 'Último Login',
             'google_id' => 'ID Google',
             'facebook_id' => 'ID Facebook',
             'avatar' => 'Foto',
@@ -185,7 +185,7 @@ class AppUsuario extends ActiveRecord implements IdentityInterface
      */
     public function registrarLogin()
     {
-        $this->ultimo_login_at = date('Y-m-d H:i:s');
+        $this->ultimo_login_em = date('Y-m-d H:i:s');
         $this->ultimo_login_ip = Yii::$app->request->userIP;
         $this->login_count = ($this->login_count ?? 0) + 1;
         $this->gerarTokenAcesso();

@@ -9,40 +9,49 @@ use app\models\api\gestor\Loja;
 use app\controllers\api\gestor\ControllerBase;
 use yii\web\NotFoundHttpException;
 use yii\web\ForbiddenHttpException;
+use yii\caching\DbDependency;
+
 
 class LojaController extends ControllerBase
 {
     public $enableCsrfValidation = false;
 
-    /**
-     * GET /api/gestor/lojas
-     * Lista todas as lojas com paginação e filtros
-     */
     public function actionIndex()
     {
         try {
-            $this->getUserByToken();// apenas autenticado
+            $this->getUserByToken();
 
             $request = Yii::$app->request;
 
             $query = Loja::find()
+                ->where(['deletado_em' => null])
                 ->orderBy(['criado_em' => SORT_DESC]);
 
-            // Filtros
-            if ($request->get('categoria')) {
-                $query->andWhere(['categoria' => $request->get('categoria')]);
-            }
-
+            // ===== FILTROS =====
             if ($request->get('status')) {
-                $query->andWhere(['status' => $request->get('status')]);
+                $statusList = explode(',', $request->get('status'));
+                $statusList = array_map('trim', $statusList);
+                $statusList = array_filter($statusList);
+                if (!empty($statusList)) {
+                    $query->andWhere(['in', 'status', $statusList]);
+                }
             }
 
-            if ($request->get('verificado') !== null) {
-                $query->andWhere(['verificado' => $request->get('verificado')]);
+            if ($request->get('categoria')) {
+                $categoriaList = explode(',', $request->get('categoria'));
+                $categoriaList = array_map('trim', $categoriaList);
+                $categoriaList = array_filter($categoriaList);
+                if (!empty($categoriaList)) {
+                    $query->andWhere(['in', 'categoria', $categoriaList]);
+                }
             }
 
             if ($request->get('destaque') !== null) {
-                $query->andWhere(['destaque' => $request->get('destaque')]);
+                $query->andWhere(['destaque' => (int)$request->get('destaque')]);
+            }
+
+            if ($request->get('verificado') !== null) {
+                $query->andWhere(['verificado' => (int)$request->get('verificado')]);
             }
 
             if ($request->get('search')) {
@@ -55,7 +64,10 @@ class LojaController extends ControllerBase
                 ]);
             }
 
-            // Paginação
+            // ===== FILTER OPTIONS COM CACHE =====
+            $filterOptions = $this->generateFilterOptions();
+
+            // ===== PAGINAÇÃO =====
             $page = (int)$request->get('page', 1);
             $perPage = (int)$request->get('per_page', 20);
             $offset = ($page - 1) * $perPage;
@@ -68,13 +80,14 @@ class LojaController extends ControllerBase
             }, $lojas);
 
             return ApiResponse::success([
-                'items' => $data,
                 'pagination' => [
                     'total' => (int)$total,
                     'page' => $page,
                     'per_page' => $perPage,
                     'total_pages' => ceil($total / $perPage)
-                ]
+                ],
+                'filter_options' => $filterOptions,
+                'items' => $data,
             ], 'Lista de lojas recuperada com sucesso');
 
         } catch (\Exception $e) {
@@ -420,5 +433,99 @@ class LojaController extends ControllerBase
                 $loja->$campo = $dados[$campo];
             }
         }
+    }
+
+    /**
+     * Gera as opções de filtro com cache
+     * @return array
+     */
+    private function generateFilterOptions()
+    {
+        $cacheKey = 'lojas_filter_options_v2';
+        
+        // Dependência baseada na última atualização
+        $dependency = new DbDependency([
+            'sql' => 'SELECT MAX(atualizado_em) FROM loja WHERE deletado_em IS NULL',
+        ]);
+        
+        $filterOptions = Yii::$app->cache->getOrSet(
+            $cacheKey,
+            function () {
+                Yii::info("Gerando filterOptions (cache expirado ou inexistente)", __METHOD__);
+                return $this->buildFilterOptions();
+            },
+            3600, // 1 hora (fallback)
+            $dependency
+        );
+        
+        return $filterOptions;
+    }
+
+    /**
+     * Constrói as opções de filtro (sem cache)
+     * @return array
+     */
+    private function buildFilterOptions()
+    {
+        // 1. Categorias com pelo menos 1 loja
+        $categoriasComLojas = (new \yii\db\Query())
+            ->select(['categoria', 'COUNT(*) as total'])
+            ->from('loja')
+            ->where(['deletado_em' => null])
+            ->andWhere(['is not', 'categoria', null])
+            ->andWhere(['<>', 'categoria', ''])
+            ->groupBy('categoria')
+            ->having(['>', 'total', 0])
+            ->orderBy(['total' => SORT_DESC])
+            ->all();
+
+        $categoriaOptions = [];
+        foreach ($categoriasComLojas as $item) {
+            $categoriaOptions[] = [
+                'value' => $item['categoria'],
+                'label' => $item['categoria'],
+                'count' => (int)$item['total'],
+            ];
+        }
+
+        // 2. Status com contagens
+        $statusCounts = (new \yii\db\Query())
+            ->select(['status', 'COUNT(*) as total'])
+            ->from('loja')
+            ->where(['deletado_em' => null])
+            ->groupBy('status')
+            ->all();
+
+        $statusLabels = [
+            'ativo' => 'Ativo',
+            'inativo' => 'Inativo',
+            'fechado' => 'Fechado',
+            'revisao' => 'Revisão',
+        ];
+
+        $statusOptions = [];
+        foreach ($statusCounts as $item) {
+            $statusOptions[] = [
+                'value' => $item['status'],
+                'label' => $statusLabels[$item['status']] ?? ucfirst($item['status']),
+                'count' => (int)$item['total'],
+            ];
+        }
+
+        // 3. Flags
+        $destaqueCount = Loja::find()
+            ->where(['deletado_em' => null, 'destaque' => 1])
+            ->count();
+
+        $verificadoCount = Loja::find()
+            ->where(['deletado_em' => null, 'verificado' => 1])
+            ->count();
+
+        return [
+            'status' => $statusOptions,
+            'categorias' => $categoriaOptions,
+            'destaque' => (int)$destaqueCount,
+            'verificado' => (int)$verificadoCount,
+        ];
     }
 }

@@ -15,25 +15,36 @@ use app\models\lojista\LojistaUsuario;
  * @property string|null $descricao
  * @property string|null $logo
  * @property string|null $capa
- * @property string|null $endereco
- * @property string|null $latitude
- * @property string|null $longitude
- * @property string|null $telefone
- * @property string|null $whatsapp
- * @property string|null $email
- * @property string|null $site
- * @property string|null $instagram
- * @property string|null $facebook
  * @property string $categoria
  * @property float|null $nota_media
  * @property int $total_avaliacoes
- * @property float|null $trending_score
- * @property int $fluxo_status
- * @property int $ativo
- * @property int $destaque
- * @property int $ordem
- * @property string $created_at
- * @property string $updated_at
+ * @property int $tempo_entrega_min
+ * @property int $tempo_entrega_max
+ * @property float|null $taxa_entrega
+ * @property float|null $pedido_minimo
+ * @property string $cep
+ * @property string $logradouro
+ * @property string $numero
+ * @property string|null $complemento
+ * @property string $bairro
+ * @property string $cidade
+ * @property string $uf
+ * @property float|null $latitude
+ * @property float|null $longitude
+ * @property string $telefone
+ * @property string|null $whatsapp
+ * @property string|null $email
+ * @property string|null $instagram
+ * @property string $status
+ * @property bool $verificado
+ * @property bool $destaque
+ * @property int $trending_score
+ * @property string $fluxo_status
+ * @property string $cor_tema
+ * @property array|null $configuracoes
+ * @property string $criado_em
+ * @property string $atualizado_em
+ * @property string|null $deletado_em
  *
  * @property Produto[] $produtos
  * @property Pedido[] $pedidos
@@ -66,24 +77,35 @@ class Loja extends ActiveRecord
     public function rules()
     {
         return [
-            [['nome', 'slug', 'categoria'], 'required'],
+            [['nome', 'slug', 'categoria', 'tempo_entrega_min', 'tempo_entrega_max', 'cep', 'logradouro', 'numero', 'bairro', 'cidade', 'uf', 'telefone', 'status', 'fluxo_status'], 'required'],
             [['nome'], 'string', 'max' => 255],
             [['slug'], 'string', 'max' => 100],
             [['slug'], 'unique'],
             [['descricao'], 'string'],
-            [['logo', 'capa', 'endereco', 'site', 'instagram', 'facebook'], 'string', 'max' => 500],
-            [['latitude', 'longitude'], 'string', 'max' => 20],
-            [['telefone', 'whatsapp', 'email'], 'string', 'max' => 100],
-            [['categoria'], 'string', 'max' => 50],
-            [['nota_media', 'trending_score'], 'number', 'min' => 0, 'max' => 5],
-            [['total_avaliacoes', 'fluxo_status', 'ativo', 'destaque', 'ordem'], 'integer'],
+            [['logo', 'capa', 'instagram'], 'string', 'max' => 500],
+            [['logradouro', 'cidade'], 'string', 'max' => 255],
+            [['bairro'], 'string', 'max' => 100],
+            [['uf'], 'string', 'max' => 2],
+            [['numero'], 'string', 'max' => 20],
+            [['cep'], 'string', 'max' => 9],
+            [['telefone', 'whatsapp', 'email'], 'string', 'max' => 255],
+            [['categoria'], 'string', 'max' => 100],
+            [['nota_media'], 'number', 'min' => 0, 'max' => 5],
+            [['total_avaliacoes', 'tempo_entrega_min', 'tempo_entrega_max', 'trending_score'], 'integer'],
+            [['taxa_entrega', 'pedido_minimo'], 'number'],
+            [['status'], 'in', 'range' => ['ativo','inativo','fechado','revisao']],
+            [['verificado', 'destaque'], 'boolean'],
+            [['fluxo_status'], 'in', 'range' => ['vazio','normal','cheio','lotado']],
+            [['cor_tema'], 'string', 'max' => 7],
+            [['configuracoes'], 'safe'],
             [['total_avaliacoes'], 'default', 'value' => 0],
             [['nota_media'], 'default', 'value' => 0],
+            [['trending_score'], 'default', 'value' => 0],
             [['fluxo_status'], 'default', 'value' => self::FLUXO_NORMAL],
-            [['ativo'], 'default', 'value' => self::STATUS_ATIVO],
-            [['destaque'], 'default', 'value' => 0],
-            [['ordem'], 'default', 'value' => 0],
-            [['created_at', 'updated_at'], 'safe'],
+            [['verificado'], 'default', 'value' => false],
+            [['destaque'], 'default', 'value' => false],
+            [['cor_tema'], 'default', 'value' => '#FF6B6B'],
+            [['criado_em', 'atualizado_em', 'deletado_em'], 'safe'],
         ];
     }
 
@@ -99,25 +121,36 @@ class Loja extends ActiveRecord
             'descricao' => 'Descrição',
             'logo' => 'Logo',
             'capa' => 'Imagem de Capa',
-            'endereco' => 'Endereço Completo',
+            'categoria' => 'Categoria',
+            'nota_media' => 'Nota Média',
+            'total_avaliacoes' => 'Total de Avaliações',
+            'tempo_entrega_min' => 'Tempo de Entrega Mínimo',
+            'tempo_entrega_max' => 'Tempo de Entrega Máximo',
+            'taxa_entrega' => 'Taxa de Entrega',
+            'pedido_minimo' => 'Pedido Mínimo',
+            'cep' => 'CEP',
+            'logradouro' => 'Logradouro',
+            'numero' => 'Número',
+            'complemento' => 'Complemento',
+            'bairro' => 'Bairro',
+            'cidade' => 'Cidade',
+            'uf' => 'UF',
             'latitude' => 'Latitude',
             'longitude' => 'Longitude',
             'telefone' => 'Telefone',
             'whatsapp' => 'WhatsApp',
             'email' => 'E-mail',
-            'site' => 'Site',
             'instagram' => 'Instagram',
-            'facebook' => 'Facebook',
-            'categoria' => 'Categoria',
-            'nota_media' => 'Nota Média',
-            'total_avaliacoes' => 'Total de Avaliações',
+            'status' => 'Status',
+            'verificado' => 'Verificado',
+            'destaque' => 'Destaque',
             'trending_score' => 'Trending Score',
             'fluxo_status' => 'Status do Fluxo',
-            'ativo' => 'Ativo',
-            'destaque' => 'Destaque',
-            'ordem' => 'Ordem',
-            'created_at' => 'Criado em',
-            'updated_at' => 'Atualizado em',
+            'cor_tema' => 'Cor Tema',
+            'configuracoes' => 'Configurações',
+            'criado_em' => 'Criado em',
+            'atualizado_em' => 'Atualizado em',
+            'deletado_em' => 'Deletado em',
         ];
     }
 

@@ -16,8 +16,8 @@ use yii\web\IdentityInterface;
  * @property string $token_acesso
  * @property string $tipo (lojista, app, gestor)
  * @property int $status (10=ativo, 0=inativo)
- * @property string $created_at
- * @property string $updated_at
+ * @property string $criado_em
+ * @property string $atualizado_em
  */
 class Usuario extends ActiveRecord implements IdentityInterface
 {
@@ -58,8 +58,8 @@ class Usuario extends ActiveRecord implements IdentityInterface
             'email' => 'E-mail',
             'tipo' => 'Tipo de Usuário',
             'status' => 'Status',
-            'created_at' => 'Criado em',
-            'updated_at' => 'Atualizado em',
+            'criado_em' => 'Criado em',
+            'atualizado_em' => 'Atualizado em',
         ];
     }
 

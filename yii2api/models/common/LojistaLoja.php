@@ -14,7 +14,7 @@ use app\models\lojista\LojistaUsuario;
  * @property int $lojista_id
  * @property int $loja_id
  * @property string $permissao
- * @property string $created_at
+ * @property string $criado_em
  *
  * @property LojistaUsuario $lojista
  * @property Loja $loja
@@ -51,7 +51,7 @@ class LojistaLoja extends ActiveRecord
                 self::PERMISSAO_ENTREGADOR,
             ]],
             [['lojista_id', 'loja_id'], 'unique', 'targetAttribute' => ['lojista_id', 'loja_id']],
-            [['created_at'], 'safe'],
+            [['criado_em'], 'safe'],
         ];
     }
 
@@ -65,7 +65,7 @@ class LojistaLoja extends ActiveRecord
             'lojista_id' => 'Lojista',
             'loja_id' => 'Loja',
             'permissao' => 'Permissão',
-            'created_at' => 'Vinculado em',
+            'criado_em' => 'Vinculado em',
         ];
     }
 

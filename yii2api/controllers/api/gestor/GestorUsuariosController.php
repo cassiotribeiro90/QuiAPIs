@@ -17,72 +17,92 @@ class GestorUsuariosController extends ControllerBase
      * Lista todos os gestores com paginação
      */  
     public function actionIndex()
-    {
-        try {
-            $usuarioLogado = $this->getUserByToken();
-            
-            // Se não for admin, retorna apenas seus próprios dados
-            if ($usuarioLogado->nivel !== 'admin') {
-                return $this->actionMe();
-            }
-            
-            $request = Yii::$app->request;
-            
-            // Query base - exclui deletados
-            $query = GestorUsuario::find()
-                ->where(['deletado_em' => null])
-                ->orderBy(['criado_em' => SORT_DESC]);
-            
-            // Filtros
-            if ($request->get('nivel')) {
-                $query->andWhere(['nivel' => $request->get('nivel')]);
-            }
-            
-            if ($request->get('status') !== null) {
-                $query->andWhere(['status' => $request->get('status')]);
-            }
-            
-            if ($request->get('search')) {
-                $search = $request->get('search');
-                $query->andWhere([
-                    'or',
-                    ['like', 'nome', $search],
-                    ['like', 'email', $search],
-                    ['like', 'cpf', $search],
-                ]);
-            }
-            
-            // Paginação
-            $page = (int)$request->get('page', 1);
-            $perPage = (int)$request->get('per_page', 20);
-            $offset = ($page - 1) * $perPage;
-            
-            $total = $query->count();
-            $gestores = $query->offset($offset)->limit($perPage)->all();
-            
-            // Formata dados
-            $data = array_map(function($gestor) {
-                return $this->formatarGestor($gestor, false);
-            }, $gestores);
-            
-            return ApiResponse::success([
-                'items' => $data,
-                'pagination' => [
-                    'total' => (int)$total,
-                    'page' => $page,
-                    'per_page' => $perPage,
-                    'total_pages' => ceil($total / $perPage)
-                ]
-            ], 'Lista de gestores recuperada com sucesso');
-            
-        } catch (\Exception $e) {
-            return ApiResponse::error(
-                $e->getMessage(),
-                $e->statusCode ?? 500,
-                $e instanceof \yii\web\UnauthorizedHttpException ? 'unauthorized' : 'internal_error'
-            );
+{
+    try {
+        $usuarioLogado = $this->getUserByToken();
+        
+        // Se não for admin, retorna apenas seus próprios dados
+        if ($usuarioLogado->nivel !== 'admin') {
+            return $this->actionMe();
         }
+        
+        $request = Yii::$app->request;
+        
+        // Query base - exclui deletados
+        $query = GestorUsuario::find()
+            ->where(['deletado_em' => null])
+            ->orderBy(['criado_em' => SORT_DESC]);
+        
+        // ===== FILTRO POR NÍVEL (MÚLTIPLOS VALORES) =====
+        if ($request->get('nivel')) {
+            $niveis = explode(',', $request->get('nivel'));
+            // Remove espaços em branco
+            $niveis = array_map('trim', $niveis);
+            // Filtra valores vazios
+            $niveis = array_filter($niveis);
+            
+            if (!empty($niveis)) {
+                $query->andWhere(['in', 'nivel', $niveis]);
+            }
+        }
+        
+        // ===== FILTRO POR STATUS (MÚLTIPLOS VALORES) =====
+        if ($request->get('status') !== null) {
+            $statusList = explode(',', $request->get('status'));
+            // Converte para inteiros
+            $statusList = array_map('intval', $statusList);
+            // Filtra valores válidos (0, 1, 2)
+            $statusList = array_filter($statusList, function($value) {
+                return in_array($value, [0, 1, 2]);
+            });
+            
+            if (!empty($statusList)) {
+                $query->andWhere(['in', 'status', $statusList]);
+            }
+        }
+        
+        // ===== FILTRO POR BUSCA (TEXTO) =====
+        if ($request->get('search')) {
+            $search = $request->get('search');
+            $query->andWhere([
+                'or',
+                ['like', 'nome', $search],
+                ['like', 'email', $search],
+                ['like', 'cpf', $search],
+            ]);
+        }
+        
+        // Paginação
+        $page = (int)$request->get('page', 1);
+        $perPage = (int)$request->get('per_page', 20);
+        $offset = ($page - 1) * $perPage;
+        
+        $total = $query->count();
+        $gestores = $query->offset($offset)->limit($perPage)->all();
+        
+        // Formata dados
+        $data = array_map(function($gestor) {
+            return $this->formatarGestor($gestor, false);
+        }, $gestores);
+        
+        return ApiResponse::success([
+            'items' => $data,
+            'pagination' => [
+                'total' => (int)$total,
+                'page' => $page,
+                'per_page' => $perPage,
+                'total_pages' => ceil($total / $perPage)
+            ]
+        ], 'Lista de gestores recuperada com sucesso');
+        
+    } catch (\Exception $e) {
+        return ApiResponse::error(
+            $e->getMessage(),
+            $e->statusCode ?? 500,
+            $e instanceof \yii\web\UnauthorizedHttpException ? 'unauthorized' : 'internal_error'
+        );
     }
+}
 
     /**
      * GET /api/gestor/gestor-usuarios/<id>
