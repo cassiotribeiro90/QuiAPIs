@@ -5,7 +5,7 @@ return [
     'dsn' => 'mysql:host=mysql;dbname=apis_db',
     'username' => 'app_user',
     'password' => 'app123',
-    'charset' => 'utf8',
+    'charset' => 'utf8mb4', // 🔥 E TAMBÉM AQUI!
     
     // Cache de schema (opcional, bom para produção)
     'enableSchemaCache' => YII_ENV_DEV,
