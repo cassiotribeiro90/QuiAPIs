@@ -10,7 +10,7 @@ use app\controllers\api\gestor\ControllerBase;
 use yii\web\NotFoundHttpException;
 use yii\web\ForbiddenHttpException;
 use yii\caching\DbDependency;
-
+use app\models\api\gestor\Produto;
 
 class LojaController extends ControllerBase
 {
@@ -130,9 +130,7 @@ class LojaController extends ControllerBase
     public function actionCreate()
     {
         try {
-            $this->getUserByToken(); // autenticado
-            // Opcional: verificar se é admin
-            // $this->verificarAdmin();
+            $this->getUserByToken();
 
             $dados = Yii::$app->request->post();
 
@@ -163,8 +161,7 @@ class LojaController extends ControllerBase
                 );
             }
 
-            // Verifica se slug já existe (se informado, mas será gerado automaticamente)
-            // O sluggable behavior cuida disso, mas podemos verificar duplicidade de nome?
+            // Verifica duplicidade de nome
             $existe = Loja::find()->where(['nome' => $dados['nome']])->exists();
             if ($existe) {
                 return ApiResponse::error(
@@ -312,6 +309,186 @@ class LojaController extends ControllerBase
     }
 
     /**
+     * GET /api/gestor/lojas/<id>/produtos
+     * Lista todos os produtos de uma loja específica
+     */
+    public function actionProdutos($id)
+    {
+        try {
+            $this->getUserByToken();
+            
+            // Verifica se a loja existe
+            $loja = $this->findModel($id);
+            
+            $request = Yii::$app->request;
+            
+            // Query base com relacionamentos
+            $query = Produto::find()
+                ->where(['loja_id' => $id])
+                ->andWhere(['deletado_em' => null])
+                ->with(['subcategoria.categoria']) // Carrega subcategoria e sua categoria
+                ->orderBy(['ordem' => SORT_ASC, 'nome' => SORT_ASC]);
+            
+            // ===== FILTROS =====
+            if ($request->get('categoria_id')) {
+                $categoriaList = array_map('intval', explode(',', $request->get('categoria_id')));
+                $categoriaList = array_filter($categoriaList);
+                if (!empty($categoriaList)) {
+                    $query->joinWith(['subcategoria']);
+                    $query->andWhere(['in', 'subcategoria.categoria_id', $categoriaList]);
+                }
+            }
+            
+            if ($request->get('subcategoria_id')) {
+                $subcategoriaList = array_map('intval', explode(',', $request->get('subcategoria_id')));
+                $subcategoriaList = array_filter($subcategoriaList);
+                if (!empty($subcategoriaList)) {
+                    $query->andWhere(['in', 'subcategoria_id', $subcategoriaList]);
+                }
+            }
+            
+            if ($request->get('disponivel') !== null) {
+                $query->andWhere(['disponivel' => (int)$request->get('disponivel')]);
+            }
+            
+            if ($request->get('search')) {
+                $search = $request->get('search');
+                $query->andWhere([
+                    'or',
+                    ['like', 'nome', $search],
+                    ['like', 'descricao', $search],
+                ]);
+            }
+            
+            // ===== PAGINAÇÃO =====
+            $page = (int)$request->get('page', 1);
+            $perPage = (int)$request->get('per_page', 20);
+            $offset = ($page - 1) * $perPage;
+            
+            $total = $query->count();
+            $produtos = $query->offset($offset)->limit($perPage)->all();
+            
+            // ===== FORMATAR E AGRUPAR PRODUTOS =====
+            $produtosPorCategoria = [];
+            $categoriasComContagem = [];
+            
+            foreach ($produtos as $produto) {
+                $produtoFormatado = $this->formatarProduto($produto);
+                $categoriaNome = $produtoFormatado['categoria_nome'] ?? 'Outros';
+                
+                if (!isset($produtosPorCategoria[$categoriaNome])) {
+                    $produtosPorCategoria[$categoriaNome] = [];
+                    $categoriasComContagem[$categoriaNome] = 0;
+                }
+                
+                $produtosPorCategoria[$categoriaNome][] = $produtoFormatado;
+                $categoriasComContagem[$categoriaNome]++;
+            }
+            
+            // Coloca "Outros" por último
+            if (isset($produtosPorCategoria['Outros'])) {
+                $outros = $produtosPorCategoria['Outros'];
+                unset($produtosPorCategoria['Outros']);
+                $produtosPorCategoria['Outros'] = $outros;
+            }
+            
+            // ===== METADADOS DAS CATEGORIAS =====
+            $categoriasMetadata = [];
+            foreach ($categoriasComContagem as $nome => $count) {
+                $categoriasMetadata[] = [
+                    'nome' => $nome,
+                    'count' => $count,
+                ];
+            }
+            
+            return ApiResponse::success([
+                'items' => $produtosPorCategoria,
+                'categories' => $categoriasMetadata,
+                'pagination' => [
+                    'total' => (int)$total,
+                    'page' => $page,
+                    'per_page' => $perPage,
+                    'total_pages' => ceil($total / $perPage)
+                ]
+            ], 'Produtos da loja recuperados com sucesso');
+            
+        } catch (\Exception $e) {
+            return ApiResponse::error(
+                $e->getMessage(),
+                $e->statusCode ?? 500,
+                'internal_error'
+            );
+        }
+    }
+
+    /**
+     * Formata dados do produto para resposta
+     * Agora obtém categoria através da subcategoria (mais elegante)
+     */
+    private function formatarProduto($produto, $detalhado = false)
+    {
+        // Obtém categoria através da subcategoria (relacionamento já carregado)
+        $categoria = $produto->subcategoria ? $produto->subcategoria->categoria : null;
+        
+        $dados = [
+            'id' => $produto->id,
+            'loja_id' => $produto->loja_id,
+            'nome' => $produto->nome,
+            'slug' => $produto->slug,
+            'descricao' => $produto->descricao,
+            'preco' => (float)$produto->preco,
+            'preco_promocional' => $produto->preco_promocional ? (float)$produto->preco_promocional : null,
+            'imagem' => $produto->imagem,
+            
+            // Informações da categoria (via subcategoria)
+            'categoria_id' => $categoria ? $categoria->id : null,
+            'categoria_nome' => $categoria ? $categoria->nome : 'Outros',
+            'categoria_icone' => $categoria ? $categoria->icone : null,
+            
+            // Informações da subcategoria
+            'subcategoria_id' => $produto->subcategoria_id,
+            'subcategoria_nome' => $produto->subcategoria ? $produto->subcategoria->nome : null,
+            
+            // Status
+            'disponivel' => (bool)$produto->disponivel,
+            'ativo' => (bool)$produto->ativo,
+            'destaque' => (bool)$produto->destaque,
+            
+            // Outros campos
+            'tempo_preparo_min' => $produto->tempo_preparo_min,
+            'ordem' => (int)$produto->ordem,
+            'criado_em' => $produto->criado_em,
+        ];
+        
+        if ($detalhado) {
+            $dados = array_merge($dados, [
+                'imagens' => $produto->imagens,
+                'ingredientes' => $produto->ingredientes,
+                'ingredientes_texto' => $produto->ingredientes_texto,
+                'calorias' => $produto->calorias,
+                'peso_gramas' => $produto->peso_gramas,
+                'contem_gluten' => (bool)$produto->contem_gluten,
+                'contem_lactose' => (bool)$produto->contem_lactose,
+                'vegano' => (bool)$produto->vegano,
+                'vegetariano' => (bool)$produto->vegetariano,
+                'apimentado' => (bool)$produto->apimentado,
+                'selos' => $produto->selos,
+                'disponivel_inicio' => $produto->disponivel_inicio,
+                'disponivel_fim' => $produto->disponivel_fim,
+                'disponivel_dias' => $produto->disponivel_dias,
+                'variacoes' => $produto->variacoes,
+                'opcoes' => $produto->opcoes,
+                'estoque' => $produto->estoque,
+                'nota_media' => (float)$produto->nota_media,
+                'total_avaliacoes' => (int)$produto->total_avaliacoes,
+                'atualizado_em' => $produto->atualizado_em,
+            ]);
+        }
+        
+        return $dados;
+    }
+
+    /**
      * GET /api/gestor/lojas/options
      * Retorna opções para selects (categorias, status, etc)
      */
@@ -437,13 +614,11 @@ class LojaController extends ControllerBase
 
     /**
      * Gera as opções de filtro com cache
-     * @return array
      */
     private function generateFilterOptions()
     {
         $cacheKey = 'lojas_filter_options_v2';
         
-        // Dependência baseada na última atualização
         $dependency = new DbDependency([
             'sql' => 'SELECT MAX(atualizado_em) FROM loja WHERE deletado_em IS NULL',
         ]);
@@ -451,10 +626,10 @@ class LojaController extends ControllerBase
         $filterOptions = Yii::$app->cache->getOrSet(
             $cacheKey,
             function () {
-                Yii::info("Gerando filterOptions (cache expirado ou inexistente)", __METHOD__);
+                Yii::info("Gerando filterOptions (cache expirado)", __METHOD__);
                 return $this->buildFilterOptions();
             },
-            3600, // 1 hora (fallback)
+            3600,
             $dependency
         );
         
@@ -463,11 +638,10 @@ class LojaController extends ControllerBase
 
     /**
      * Constrói as opções de filtro (sem cache)
-     * @return array
      */
     private function buildFilterOptions()
     {
-        // 1. Categorias com pelo menos 1 loja
+        // Categorias com pelo menos 1 loja
         $categoriasComLojas = (new \yii\db\Query())
             ->select(['categoria', 'COUNT(*) as total'])
             ->from('loja')
@@ -488,7 +662,7 @@ class LojaController extends ControllerBase
             ];
         }
 
-        // 2. Status com contagens
+        // Status com contagens
         $statusCounts = (new \yii\db\Query())
             ->select(['status', 'COUNT(*) as total'])
             ->from('loja')
@@ -512,7 +686,7 @@ class LojaController extends ControllerBase
             ];
         }
 
-        // 3. Flags
+        // Flags
         $destaqueCount = Loja::find()
             ->where(['deletado_em' => null, 'destaque' => 1])
             ->count();

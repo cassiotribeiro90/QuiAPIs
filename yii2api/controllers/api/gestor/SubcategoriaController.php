@@ -252,6 +252,46 @@ class SubcategoriaController extends ControllerBase
     }
 
     /**
+     * GET /api/gestor/subcategorias/por-categoria/<id>
+     * Retorna todas as subcategorias ativas de uma categoria específica
+     */
+    public function actionPorCategoria($id)
+    {
+        try {
+            $this->getUserByToken();
+
+            // Verifica se a categoria existe
+            $categoria = Categoria::findOne($id);
+            if (!$categoria) {
+                throw new NotFoundHttpException('Categoria não encontrada');
+            }
+
+            $subcategorias = Subcategoria::find()
+                ->where(['categoria_id' => $id, 'ativo' => 1])
+                ->orderBy(['ordem' => SORT_ASC, 'nome' => SORT_ASC])
+                ->all();
+
+            $data = array_map(function($sub) {
+                return [
+                    'id' => $sub->id,
+                    'nome' => $sub->nome,
+                    'icone' => $sub->icone,
+                    'ordem' => $sub->ordem,
+                ];
+            }, $subcategorias);
+
+            return ApiResponse::success($data, 'Subcategorias recuperadas com sucesso');
+
+        } catch (\Exception $e) {
+            return ApiResponse::error(
+                $e->getMessage(),
+                $e->statusCode ?? 500,
+                'internal_error'
+            );
+        }
+    }
+
+    /**
      * DELETE /api/gestor/subcategorias/delete/<id>
      * Remove uma subcategoria (verifica se tem produtos vinculados)
      */

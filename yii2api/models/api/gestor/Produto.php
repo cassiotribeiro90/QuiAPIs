@@ -69,7 +69,10 @@ class Produto extends ActiveRecord
                 'class' => SluggableBehavior::class,
                 'attribute' => 'nome',
                 'ensureUnique' => true,
-                'immutable' => true,
+                'immutable' => false,
+                'uniqueValidator' => [
+                    'targetAttribute' => ['slug', 'loja_id'],
+                ],
             ],
             [
                 'class' => TimestampBehavior::class,
@@ -92,6 +95,8 @@ class Produto extends ActiveRecord
             [['nome', 'slug'], 'string', 'max' => 255],
             [['imagem'], 'string', 'max' => 500],
             [['slug'], 'unique'],
+            
+            // ✅ RELACIONAMENTOS - SEM categoria_id!
             [['loja_id'], 'exist', 'skipOnError' => true, 'targetClass' => Loja::class, 'targetAttribute' => ['loja_id' => 'id']],
             [['subcategoria_id'], 'exist', 'skipOnError' => true, 'targetClass' => Subcategoria::class, 'targetAttribute' => ['subcategoria_id' => 'id']],
         ];
@@ -159,7 +164,8 @@ class Produto extends ActiveRecord
         return $this->disponivel && $this->ativo && $this->deletado_em === null;
     }
 
-    // Relacionamentos
+    // ===== RELACIONAMENTOS =====
+    
     public function getLoja()
     {
         return $this->hasOne(Loja::class, ['id' => 'loja_id']);
@@ -168,5 +174,94 @@ class Produto extends ActiveRecord
     public function getSubcategoria()
     {
         return $this->hasOne(Subcategoria::class, ['id' => 'subcategoria_id']);
+    }
+
+    /**
+     * Relacionamento com Categoria VIA subcategoria
+     */
+    public function getCategoria()
+    {
+        return $this->hasOne(Categoria::class, ['id' => 'categoria_id'])
+            ->via('subcategoria');
+    }
+
+    /**
+     * Getter para nome da categoria (útil para o frontend)
+     */
+    public function getCategoriaNome()
+    {
+        return $this->categoria ? $this->categoria->nome : 'Outros';
+    }
+
+    /**
+     * Getter para ícone da categoria
+     */
+    public function getCategoriaIcone()
+    {
+        return $this->categoria ? $this->categoria->icone : null;
+    }
+
+    /**
+     * Getter para cor da categoria
+     */
+    public function getCategoriaCor()
+    {
+        return $this->categoria ? $this->categoria->cor : null;
+    }
+
+    /**
+     * Gera slug antes da validação
+     */
+    public function beforeValidate()
+    {
+        if (parent::beforeValidate()) {
+            // Se não tiver slug ou o nome mudou, gera novo slug
+            $this->slug = $this->generateUniqueSlug($this->nome);
+            return true;
+        }
+        return false;
+    }
+
+    /**
+     * Gera um slug único baseado no nome
+     */
+    private function generateUniqueSlug($nome)
+    {
+        $slug = $this->createSlug($nome);
+        $originalSlug = $slug;
+        $counter = 1;
+        
+        $query = self::find()->where(['slug' => $slug]);
+        if (!$this->isNewRecord) {
+            $query->andWhere(['!=', 'id', $this->id]);
+        }
+        
+        while ($query->exists()) {
+            $slug = $originalSlug . '-' . $counter;
+            $counter++;
+            $query = self::find()->where(['slug' => $slug]);
+            if (!$this->isNewRecord) {
+                $query->andWhere(['!=', 'id', $this->id]);
+            }
+        }
+        
+        return $slug;
+    }
+
+    /**
+     * Cria um slug básico a partir do nome
+     */
+    private function createSlug($str)
+    {
+        $str = mb_strtolower($str, 'UTF-8');
+        $str = preg_replace('/[áàãâä]/ui', 'a', $str);
+        $str = preg_replace('/[éèêë]/ui', 'e', $str);
+        $str = preg_replace('/[íìîï]/ui', 'i', $str);
+        $str = preg_replace('/[óòõôö]/ui', 'o', $str);
+        $str = preg_replace('/[úùûü]/ui', 'u', $str);
+        $str = preg_replace('/[ç]/ui', 'c', $str);
+        $str = preg_replace('/[^a-z0-9]/i', '-', $str);
+        $str = preg_replace('/-+/', '-', $str);
+        return trim($str, '-');
     }
 }

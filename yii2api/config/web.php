@@ -87,6 +87,7 @@ $config = [
                 'POST lojista/pedido' => 'api/lojista/pedido/create',
                 'POST auth-lojista/create' => 'auth-lojista/create',
                 'POST auth-lojista/login' => 'auth-lojista/login',
+                'POST api/gestor/lojas/<id:\d+>/produtos' => 'api/gestor/loja/produtos',
 
                 // API Gestor =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
                 // Usuarios do painel gestor
@@ -129,6 +130,7 @@ $config = [
                 'api/gestor/subcategorias/update/<id:\d+>' => 'api/gestor/subcategoria/update',
                 'api/gestor/subcategorias/delete/<id:\d+>' => 'api/gestor/subcategoria/delete',
                 'api/gestor/subcategorias/options' => 'api/gestor/subcategoria/options',
+                'api/gestor/subcategorias/por-categoria/<id:\d+>' => 'api/gestor/subcategoria/por-categoria',
             ],
         ],
     ],
