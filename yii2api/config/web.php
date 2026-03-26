@@ -77,9 +77,42 @@ $config = [
             'rules' => [
 
                 // API App -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
-                'GET app/produto' => 'api/app/produto/index',
-                'GET app/produto/<id:\d+>' => 'api/app/produto/view',
-                'POST app/produto' => 'api/app/produto/create', 
+                // Auth
+                'POST api/app/auth/login' => 'api/app/auth/login',
+                'POST api/app/auth/cadastro' => 'api/app/auth/cadastro',
+                'POST api/app/auth/refresh-token' => 'api/app/auth/refresh-token',
+                'POST api/app/auth/logout' => 'api/app/auth/logout',
+                'GET api/app/auth/me' => 'api/app/auth/me',
+
+
+                // API Cliente (quiPede) - PÚBLICAS
+                'GET api/app/lojas' => 'api/app/loja/index',
+                'GET api/app/lojas/proximas' => 'api/app/loja/proximas',
+                'GET api/app/lojas/<id:\d+>' => 'api/app/loja/view',
+                'GET api/app/produtos' => 'api/app/produto/index',
+                'GET api/app/produtos/<id:\d+>' => 'api/app/produto/view',
+                'GET api/app/categorias' => 'api/app/categoria/index',
+
+                // Endereços (requer autenticação)
+                'GET api/app/enderecos' => 'api/app/endereco/index',
+                'GET api/app/enderecos/<id:\d+>' => 'api/app/endereco/view',
+                'POST api/app/enderecos' => 'api/app/endereco/create',
+                'PUT api/app/enderecos/<id:\d+>' => 'api/app/endereco/update',
+                'DELETE api/app/enderecos/<id:\d+>' => 'api/app/endereco/delete',
+                'POST api/app/enderecos/<id:\d+>/padrao' => 'api/app/endereco/set-padrao',
+                
+                // Pedidos (requer autenticação)
+                'GET api/app/pedidos' => 'api/app/pedido/index',
+                'GET api/app/pedidos/<id:\d+>' => 'api/app/pedido/view',
+                'POST api/app/pedidos' => 'api/app/pedido/create',
+                'POST api/app/pedidos/<id:\d+>/cancelar' => 'api/app/pedido/cancelar',
+                'GET api/app/pedidos/status/<status:\w+>' => 'api/app/pedido/por-status',
+
+                // Avaliações
+                'GET api/app/avaliacoes/loja/<lojaId:\d+>' => 'api/app/avaliacao/loja',
+                'GET api/app/avaliacoes/produto/<produtoId:\d+>' => 'api/app/avaliacao/produto',
+                'POST api/app/avaliacoes' => 'api/app/avaliacao/create',
+                'PUT api/app/avaliacoes/<id:\d+>' => 'api/app/avaliacao/update',
 
                  // API Lojista -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
                 'GET lojista/pedido' => 'api/lojista/pedido/index',

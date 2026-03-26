@@ -1,8 +1,10 @@
 <?php
-namespace app\models\app;
+namespace app\models\api\app;
 
 use Yii;
 use yii\db\ActiveRecord;
+use app\models\api\gestor\Produto;
+use app\models\api\gestor\Categoria;
 
 class AppLoja extends ActiveRecord
 {
