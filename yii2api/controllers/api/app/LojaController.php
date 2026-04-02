@@ -5,24 +5,37 @@ namespace app\controllers\api\app;
 
 use Yii;
 use app\components\ApiResponse;
+use app\components\DistanceCalculator;
 use app\models\api\gestor\Loja;
 use app\controllers\api\app\AppControllerBase;
 
 class LojaController extends AppControllerBase
 {
     /**
+     * {@inheritdoc}
+     * Libera acesso público para ações de listagem
+     */
+    public function behaviors()
+    {
+        $behaviors = parent::behaviors();
+        
+        if (isset($behaviors['authenticator'])) {
+            $behaviors['authenticator']['except'] = [
+                'index',
+                'proximas',
+            ];
+        }
+        
+        return $behaviors;
+    }
+    
+    /**
      * GET /api/app/lojas
-     * Lista lojas disponíveis, podendo ordenar por distância
+     * GET /api/app/loja
      * 
-     * Parâmetros:
-     * - latitude: float (opcional, necessário para ordenar por distância)
-     * - longitude: float (opcional, necessário para ordenar por distância)
-     * - order_by: string (distancia, nota, tempo_entrega, padrão = nota)
-     * - categoria: string (filtro)
-     * - cidade: string (filtro)
-     * - search: string (busca)
-     * - page: int
-     * - per_page: int
+     * Lista lojas disponíveis com paginação, filtros e ordenação
+     * 
+     * @return array
      */
     public function actionIndex()
     {
@@ -32,7 +45,7 @@ class LojaController extends AppControllerBase
         $longitude = $request->get('longitude');
         $orderBy = $request->get('order_by', 'nota');
         
-        // Query base - apenas lojas ativas
+        // ===== QUERY BASE =====
         $query = Loja::find()
             ->where(['deletado_em' => null, 'status' => 'ativo']);
         
@@ -54,37 +67,27 @@ class LojaController extends AppControllerBase
             ]);
         }
         
-        // ===== ORDENAÇÃO POR DISTÂNCIA =====
+        // ===== ORDENAÇÃO =====
         if ($orderBy === 'distancia' && $latitude && $longitude) {
-            // Fórmula de Haversine para calcular distância em km
-            $haversine = "
-                (6371 * acos(
-                    cos(radians($latitude)) * 
-                    cos(radians(latitude)) * 
-                    cos(radians(longitude) - radians($longitude)) + 
-                    sin(radians($latitude)) * 
-                    sin(radians(latitude))
-                ))
-            ";
-            
-            // Adiciona o cálculo de distância como campo virtual
-            $query->select([
-                'loja.*',
-                "ROUND($haversine, 2) as distancia"
-            ]);
-            
-            // Ordena por distância
+            $distanceSql = DistanceCalculator::getDistanceSql($latitude, $longitude);
+            $query->select(['loja.*', "$distanceSql as distancia"]);
             $query->orderBy(['distancia' => SORT_ASC]);
         } 
-        // ===== OUTRAS ORDENAÇÕES =====
         elseif ($orderBy === 'tempo_entrega') {
-            // Ordena pelo tempo médio de entrega
             $query->orderBy([
                 '((tempo_entrega_min + tempo_entrega_max) / 2)' => SORT_ASC
             ]);
         } 
+        elseif ($orderBy === 'taxa_entrega') {
+            $query->orderBy(['taxa_entrega' => SORT_ASC]);
+        }
+        elseif ($orderBy === 'nota') {
+            $query->orderBy([
+                'nota_media' => SORT_DESC,
+                'total_avaliacoes' => SORT_DESC,
+            ]);
+        }
         else {
-            // Padrão: ordenar por nota e destaque
             $query->orderBy([
                 'destaque' => SORT_DESC,
                 'nota_media' => SORT_DESC,
@@ -98,6 +101,9 @@ class LojaController extends AppControllerBase
         
         $total = $query->count();
         $lojas = $query->offset($offset)->limit($perPage)->all();
+        
+        // ===== GERAR FILTER_OPTIONS =====
+        $filterOptions = $this->generateFilterOptions();
         
         // ===== FORMATAR RESPOSTA =====
         $data = array_map(function($loja) use ($orderBy, $latitude, $longitude) {
@@ -119,7 +125,6 @@ class LojaController extends AppControllerBase
                 'verificado' => (bool)$loja->verificado,
             ];
             
-            // Se ordenou por distância, inclui a distância calculada
             if ($orderBy === 'distancia' && $latitude && $longitude && isset($loja->distancia)) {
                 $item['distancia'] = (float)$loja->distancia;
                 $item['distancia_texto'] = $this->formatarDistancia($loja->distancia);
@@ -135,13 +140,18 @@ class LojaController extends AppControllerBase
                 'page' => $page,
                 'per_page' => $perPage,
                 'total_pages' => ceil($total / $perPage)
-            ]
+            ],
+            'filter_options' => $filterOptions
         ]);
     }
     
     /**
      * GET /api/app/lojas/proximas
-     * Endpoint dedicado para lojas próximas (mais simples)
+     * GET /api/app/loja/proximas
+     * 
+     * Endpoint dedicado para lojas próximas por raio de distância
+     * 
+     * @return array
      */
     public function actionProximas()
     {
@@ -149,31 +159,20 @@ class LojaController extends AppControllerBase
         
         $latitude = $request->get('latitude');
         $longitude = $request->get('longitude');
-        $raio = (float)$request->get('raio', 10); // raio padrão 10km
+        $raio = (float)$request->get('raio', 10);
         
         if (!$latitude || !$longitude) {
             return ApiResponse::error('Latitude e longitude são obrigatórios', 400);
         }
         
-        // Fórmula de Haversine
-        $haversine = "
-            (6371 * acos(
-                cos(radians($latitude)) * 
-                cos(radians(latitude)) * 
-                cos(radians(longitude) - radians($longitude)) + 
-                sin(radians($latitude)) * 
-                sin(radians(latitude))
-            ))
-        ";
+        $distanceSql = DistanceCalculator::getDistanceSql($latitude, $longitude);
+        $radiusSql = DistanceCalculator::getRadiusSql($latitude, $longitude, $raio);
         
         $query = Loja::find()
             ->where(['deletado_em' => null, 'status' => 'ativo'])
-            ->andWhere("latitude IS NOT NULL AND longitude IS NOT NULL")
-            ->andWhere("$haversine <= $raio")
-            ->select([
-                'loja.*',
-                "ROUND($haversine, 2) as distancia"
-            ])
+            ->andWhere('latitude IS NOT NULL AND longitude IS NOT NULL')
+            ->andWhere($radiusSql)
+            ->select(['loja.*', "$distanceSql as distancia"])
             ->orderBy(['distancia' => SORT_ASC]);
         
         $limit = (int)$request->get('limit', 20);
@@ -185,9 +184,11 @@ class LojaController extends AppControllerBase
                 'nome' => $loja->nome,
                 'categoria' => $loja->categoria,
                 'logo' => $loja->logo,
+                'capa' => $loja->capa,
                 'cidade' => $loja->cidade,
                 'uf' => $loja->uf,
                 'nota_media' => (float)$loja->nota_media,
+                'total_avaliacoes' => (int)$loja->total_avaliacoes,
                 'tempo_entrega_min' => (int)$loja->tempo_entrega_min,
                 'tempo_entrega_max' => (int)$loja->tempo_entrega_max,
                 'taxa_entrega' => (float)$loja->taxa_entrega,
@@ -204,7 +205,40 @@ class LojaController extends AppControllerBase
     }
     
     /**
+     * Gera as opções de filtro (categorias com contagens)
+     * 
+     * @return array
+     */
+    private function generateFilterOptions()
+    {
+        $categoriasComLojas = (new \yii\db\Query())
+            ->select(['categoria', 'COUNT(*) as total'])
+            ->from('loja')
+            ->where(['deletado_em' => null, 'status' => 'ativo'])
+            ->andWhere(['is not', 'categoria', null])
+            ->andWhere(['<>', 'categoria', ''])
+            ->groupBy('categoria')
+            ->having(['>', 'total', 0])
+            ->orderBy(['total' => SORT_DESC])
+            ->all();
+
+        $categoriaOptions = [];
+        foreach ($categoriasComLojas as $item) {
+            $categoriaOptions[] = [
+                'value' => $item['categoria'],
+                'label' => $item['categoria'],
+                'count' => (int)$item['total'],
+            ];
+        }
+
+        return ['categorias' => $categoriaOptions];
+    }
+    
+    /**
      * Formata distância em texto amigável
+     * 
+     * @param float $distancia
+     * @return string
      */
     private function formatarDistancia($distancia)
     {

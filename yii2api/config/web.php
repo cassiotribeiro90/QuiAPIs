@@ -14,52 +14,58 @@ $config = [
         '@npm'   => '@vendor/npm-asset',
     ],
     'components' => [
-         // User para clientes/App
+        // ==================== CONFIGURAÇÃO DE USUÁRIOS ====================
+        // Usuário padrão (para APP - clientes)
         'user' => [
-            'identityClass' => 'app\models\app\AppUsuario',  // Clientes
+            'identityClass' => 'app\models\app\AppUsuario',
             'enableAutoLogin' => false,
             'enableSession' => false,
             'loginUrl' => null,
         ],
         
-        // User para lojistas (nome diferente)
+        // Componentes adicionais para outros tipos de usuário (usando nome diferente)
         'userLojista' => [
             'class' => 'yii\web\User',
-            'identityClass' => 'app\models\lojista\LojistaUsuario',  // Lojistas
+            'identityClass' => 'app\models\lojista\LojistaUsuario',
             'enableAutoLogin' => false,
             'enableSession' => false,
             'loginUrl' => null,
         ],
+        
         'userGestor' => [
             'class' => 'yii\web\User',
-            'identityClass' => 'app\models\gestor\GestorUsuario',  // Gestores
+            'identityClass' => 'app\models\gestor\GestorUsuario',
             'enableAutoLogin' => false,
             'enableSession' => false,
             'loginUrl' => null,
         ],
+        
+        // ==================== REQUEST ====================
         'request' => [
-            // !!! insert a secret key in the following (if it is empty) - this is required by cookie validation
             'cookieValidationKey' => 'B226kftmhnPN6snNBVMWddi8P3nTJLK7',
             'parsers' => [
-                'application/json' => 'yii\web\JsonParser', // ESSENCIAL!
+                'application/json' => 'yii\web\JsonParser',
             ],
         ],
+        
+        // ==================== CACHE ====================
         'cache' => [
             'class' => 'yii\caching\FileCache',
         ],
-        'user' => [
-            'identityClass' => 'app\models\User',
-            'enableAutoLogin' => true,
-        ],
+        
+        // ==================== ERROR HANDLER ====================
         'errorHandler' => [
             'errorAction' => 'site/error',
         ],
+        
+        // ==================== MAILER ====================
         'mailer' => [
             'class' => \yii\symfonymailer\Mailer::class,
             'viewPath' => '@app/mail',
-            // send all mails to a file by default.
             'useFileTransport' => true,
         ],
+        
+        // ==================== LOG ====================
         'log' => [
             'traceLevel' => YII_DEBUG ? 3 : 0,
             'targets' => [
@@ -69,30 +75,57 @@ $config = [
                 ],
             ],
         ],
+        
+        // ==================== DATABASE ====================
         'db' => $db,
-         'urlManager' => [
+        
+        // ==================== URL MANAGER ====================
+        'urlManager' => [
             'enablePrettyUrl' => true,
             'showScriptName' => false,
             'enableStrictParsing' => false,
             'rules' => [
-
-                // API App -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+                // ==================== API APP (Cliente) - PÚBLICAS ====================
+                
                 // Auth
                 'POST api/app/auth/login' => 'api/app/auth/login',
                 'POST api/app/auth/cadastro' => 'api/app/auth/cadastro',
                 'POST api/app/auth/refresh-token' => 'api/app/auth/refresh-token',
                 'POST api/app/auth/logout' => 'api/app/auth/logout',
                 'GET api/app/auth/me' => 'api/app/auth/me',
-
-
-                // API Cliente (quiPede) - PÚBLICAS
+                
+                // Lojas - Listagem
                 'GET api/app/lojas' => 'api/app/loja/index',
+                'GET api/app/loja' => 'api/app/loja/index',
+                
+                // ==================== LOJA HOME (DETALHES) ====================
+                // Suporta: /loja-home?id=1, /loja-home/1, /loja-home?loja_id=1
+                'GET api/app/loja-home' => 'api/app/loja-home/index',
+                'GET api/app/loja-home/<id:\d+>' => 'api/app/loja-home/index',
+                
+                // Lojas - Próximas
                 'GET api/app/lojas/proximas' => 'api/app/loja/proximas',
-                'GET api/app/lojas/<id:\d+>' => 'api/app/loja/view',
+                'GET api/app/loja/proximas' => 'api/app/loja/proximas',
+                
+                // Produtos - Busca na loja (suporta /loja/1/search e /loja/search?id=1)
+                'GET api/app/loja/<id:\d+>/search' => 'api/app/loja/search',
+                'GET api/app/loja/search' => 'api/app/loja/search',
+                
+                // Categorias da loja
+                'GET api/app/loja/<id:\d+>/categorias' => 'api/app/loja/categorias',
+                'GET api/app/loja/categorias' => 'api/app/loja/categorias',
+                
+                // Avaliações da loja
+                'GET api/app/loja/<id:\d+>/avaliacoes' => 'api/app/loja/avaliacoes',
+                'GET api/app/loja/avaliacoes' => 'api/app/loja/avaliacoes',
+                
+                // Produtos gerais
                 'GET api/app/produtos' => 'api/app/produto/index',
                 'GET api/app/produtos/<id:\d+>' => 'api/app/produto/view',
+                
+                // Categorias gerais
                 'GET api/app/categorias' => 'api/app/categoria/index',
-
+                
                 // Endereços (requer autenticação)
                 'GET api/app/enderecos' => 'api/app/endereco/index',
                 'GET api/app/enderecos/<id:\d+>' => 'api/app/endereco/view',
@@ -107,23 +140,23 @@ $config = [
                 'POST api/app/pedidos' => 'api/app/pedido/create',
                 'POST api/app/pedidos/<id:\d+>/cancelar' => 'api/app/pedido/cancelar',
                 'GET api/app/pedidos/status/<status:\w+>' => 'api/app/pedido/por-status',
-
+                
                 // Avaliações
                 'GET api/app/avaliacoes/loja/<lojaId:\d+>' => 'api/app/avaliacao/loja',
                 'GET api/app/avaliacoes/produto/<produtoId:\d+>' => 'api/app/avaliacao/produto',
                 'POST api/app/avaliacoes' => 'api/app/avaliacao/create',
                 'PUT api/app/avaliacoes/<id:\d+>' => 'api/app/avaliacao/update',
-
-                 // API Lojista -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
+                
+                // ==================== API LOJISTA ====================
                 'GET lojista/pedido' => 'api/lojista/pedido/index',
                 'GET lojista/pedido/<id:\d+>' => 'api/lojista/pedido/view',
                 'POST lojista/pedido' => 'api/lojista/pedido/create',
                 'POST auth-lojista/create' => 'auth-lojista/create',
                 'POST auth-lojista/login' => 'auth-lojista/login',
                 'POST api/gestor/lojas/<id:\d+>/produtos' => 'api/gestor/loja/produtos',
-
-                // API Gestor =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
-                // Usuarios do painel gestor
+                
+                // ==================== API GESTOR ====================
+                // Usuários do painel gestor
                 'api/gestor/gestor-usuarios' => 'api/gestor/gestor-usuarios/index',
                 'api/gestor/gestor-usuarios/<id:\d+>' => 'api/gestor/gestor-usuarios/view',
                 'api/gestor/gestor-usuarios/login' => 'api/gestor/gestor-usuarios/login',
@@ -134,29 +167,28 @@ $config = [
                 'api/gestor/gestor-usuarios/delete/<id:\d+>' => 'api/gestor/gestor-usuarios/delete',
                 'api/gestor/gestor-usuarios/refresh-token' => 'api/gestor/gestor-usuarios/refresh-token',
                 'api/gestor/gestor-usuarios/check-token' => 'api/gestor/gestor-usuarios/check-token',
-
-                // Dashboard do Gestor
+                
+                // Dashboard
                 'api/gestor/dashboard' => 'api/gestor/dashboard/index',
                 'api/gestor/dashboard/graficos' => 'api/gestor/dashboard/graficos',
-
+                
                 // Lojas do Gestor
                 'api/gestor/lojas' => 'api/gestor/loja/index',
                 'api/gestor/lojas/<id:\d+>' => 'api/gestor/loja/view',
                 'api/gestor/lojas/create' => 'api/gestor/loja/create',
                 'api/gestor/lojas/update/<id:\d+>' => 'api/gestor/loja/update',
-                'api/gestor/lojas/update/<id:\d+>' => 'api/gestor/loja/update',
                 'api/gestor/lojas/delete/<id:\d+>' => 'api/gestor/loja/delete',
                 'api/gestor/lojas/options' => 'api/gestor/loja/options',
-
-                // Rotas para Categorias
+                
+                // Categorias
                 'api/gestor/categorias' => 'api/gestor/categoria/index',
                 'api/gestor/categorias/<id:\d+>' => 'api/gestor/categoria/view',
                 'api/gestor/categorias/create' => 'api/gestor/categoria/create',
                 'api/gestor/categorias/update/<id:\d+>' => 'api/gestor/categoria/update',
                 'api/gestor/categorias/delete/<id:\d+>' => 'api/gestor/categoria/delete',
                 'api/gestor/categorias/options' => 'api/gestor/categoria/options',
-
-                // Rotas para Subcategorias
+                
+                // Subcategorias
                 'api/gestor/subcategorias' => 'api/gestor/subcategoria/index',
                 'api/gestor/subcategorias/<id:\d+>' => 'api/gestor/subcategoria/view',
                 'api/gestor/subcategorias/create' => 'api/gestor/subcategoria/create',
@@ -171,18 +203,15 @@ $config = [
 ];
 
 if (YII_ENV_DEV) {
-    // configuration adjustments for 'dev' environment
     $config['bootstrap'][] = 'debug';
     $config['modules']['debug'] = [
         'class' => 'yii\debug\Module',
-        // uncomment the following to add your IP if you are not connecting from localhost.
-        //'allowedIPs' => ['127.0.0.1', '::1'],
     ];
 
     $config['bootstrap'][] = 'gii';
     $config['modules']['gii'] = [
         'class' => 'yii\gii\Module',
-        'allowedIPs' => ['*'], // LIBERADO PARA TESTE (depois você restringe)
+        'allowedIPs' => ['*'],
     ];
 }
 
