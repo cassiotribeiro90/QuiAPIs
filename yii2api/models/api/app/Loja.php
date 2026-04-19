@@ -122,7 +122,7 @@ class Loja extends ActiveRecord
             'whatsapp' => 'WhatsApp',
             'email' => 'E-mail',
             'instagram' => 'Instagram',
-            'status' => 'Status',
+            'ativo' => '1',
             'verificado' => 'Verificado',
             'destaque' => 'Destaque',
             'trending_score' => 'Trending Score',

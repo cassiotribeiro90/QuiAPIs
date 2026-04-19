@@ -20,7 +20,6 @@ use yii\db\ActiveRecord;
  * @property string $bairro
  * @property string $cidade
  * @property string $uf
- * @property string $pais
  * @property float|null $latitude
  * @property float|null $longitude
  * @property string|null $referencia
@@ -58,7 +57,6 @@ class AppEndereco extends ActiveRecord
             [['logradouro', 'bairro', 'cidade'], 'string', 'max' => 255],
             [['numero'], 'string', 'max' => 20],
             [['uf'], 'string', 'max' => 2],
-            [['pais'], 'string', 'max' => 50],
             [['tipo'], 'in', 'range' => [self::TIPO_RESIDENCIAL, self::TIPO_COMERCIAL, self::TIPO_ENTREGA, self::TIPO_COBRANCA]],
         ];
     }
@@ -77,7 +75,6 @@ class AppEndereco extends ActiveRecord
             'bairro' => 'Bairro',
             'cidade' => 'Cidade',
             'uf' => 'UF',
-            'pais' => 'País',
             'latitude' => 'Latitude',
             'longitude' => 'Longitude',
             'referencia' => 'Ponto de Referência',

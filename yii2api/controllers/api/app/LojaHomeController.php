@@ -9,6 +9,7 @@ use app\components\DistanceCalculator;
 use app\models\api\app\Loja;
 use app\models\api\app\Produto;
 use app\models\api\app\Subcategoria;
+use app\models\api\app\AtributoOpcao;
 use app\controllers\api\app\AppControllerBase;
 
 class LojaHomeController extends AppControllerBase
@@ -23,9 +24,9 @@ class LojaHomeController extends AppControllerBase
         if (isset($behaviors['authenticator'])) {
             $behaviors['authenticator']['except'] = [
                 'index',
-                'search',
                 'categorias',
                 'avaliacoes',
+                'secoes',
             ];
         }
         
@@ -36,129 +37,60 @@ class LojaHomeController extends AppControllerBase
      * GET /api/app/loja-home
      * GET /api/app/loja-home/{id}
      * GET /api/app/loja-home?id={id}
+     * 
+     * Retorna:
+     * - Dados da loja
+     * - secoes (produtos agrupados por subcategoria)
+     * - pagination (da seção atual)
+     * - filter_options
+     * - configuracoes (configurações da loja)
+     * - meio_a_meio (opções de meio a meio)
+     * 
+     * Parâmetros:
+     * - id / loja_id (obrigatório)
+     * - categoria_id (opcional)
+     * - search (opcional)
+     * - order_by (opcional)
+     * - page (opcional, padrão 1)
+     * - per_page (opcional, padrão 20)
      */
     public function actionIndex($id = null)
     {
         try {
             $request = Yii::$app->request;
             
+            // ===== ID DA LOJA =====
             if ($id === null) {
                 $id = $request->get('id');
             }
             if ($id === null) {
                 $id = $request->get('loja_id');
             }
+            $lojaId = (int)$id;
             
-            // Força como inteiro
-            $id = (int)$id;
-            
-            if (!$id) {
+            if (!$lojaId) {
                 return ApiResponse::error('ID da loja não informado', 400);
             }
             
-            $latitude = $request->get('latitude');
-            $longitude = $request->get('longitude');
+            // ===== PARÂMETROS DE FILTRO =====
+            $categoriaId = $request->get('categoria_id') ? (int)$request->get('categoria_id') : null;
+            $search = $request->get('search', '');
+            $orderBy = $request->get('order_by', 'relevancia');
+            $page = (int)$request->get('page', 1);
+            $perPage = (int)$request->get('per_page', 20);
             
-            // ===== DEBUG: INFORMAÇÕES DA LOJA =====
-            $debug = [];
-            
-            // Busca a loja
+            // ===== BUSCA A LOJA =====
             $loja = Loja::find()
-                ->where(['id' => $id, 'deletado_em' => null])
+                ->where(['id' => $lojaId, 'deletado_em' => null])
                 ->one();
             
             if (!$loja) {
                 return ApiResponse::error('Loja não encontrada', 404);
             }
             
-            $debug['loja_encontrada'] = [
-                'id' => $loja->id,
-                'nome' => $loja->nome,
-            ];
-            
-            // ===== DEBUG: CONTAGEM DE PRODUTOS =====
-            $totalProdutos = Produto::find()
-                ->where(['loja_id' => $id, 'deletado_em' => null])
-                ->count();
-            $debug['total_produtos_loja'] = $totalProdutos;
-            
-            $produtosAtivos = Produto::find()
-                ->where([
-                    'loja_id' => $id,
-                    'deletado_em' => null,
-                    'ativo' => 1
-                ])
-                ->count();
-            $debug['produtos_ativos'] = $produtosAtivos;
-            
-            $produtosDisponiveis = Produto::find()
-                ->where([
-                    'loja_id' => $id,
-                    'deletado_em' => null,
-                    'disponivel' => 1
-                ])
-                ->count();
-            $debug['produtos_disponiveis'] = $produtosDisponiveis;
-            
-            $produtosAtivosEDisponiveis = Produto::find()
-                ->where([
-                    'loja_id' => $id,
-                    'deletado_em' => null,
-                    'ativo' => 1,
-                    'disponivel' => 1
-                ])
-                ->count();
-            $debug['produtos_ativos_e_disponiveis'] = $produtosAtivosEDisponiveis;
-            
-            // ===== DEBUG: PRODUTOS COM SUBCATEGORIA =====
-            $produtosComSubcategoria = Produto::find()
-                ->where([
-                    'loja_id' => $id,
-                    'deletado_em' => null,
-                    'ativo' => 1,
-                    'disponivel' => 1
-                ])
-                ->andWhere(['not', ['subcategoria_id' => null]])
-                ->count();
-            $debug['produtos_com_subcategoria'] = $produtosComSubcategoria;
-            
-            // ===== DEBUG: LISTA DE PRODUTOS (primeiros 5) =====
-            $primeirosProdutos = Produto::find()
-                ->select(['id', 'nome', 'subcategoria_id', 'ativo', 'disponivel'])
-                ->where(['loja_id' => $id, 'deletado_em' => null])
-                ->limit(5)
-                ->asArray()
-                ->all();
-            $debug['primeiros_produtos'] = $primeirosProdutos;
-            
-            // ===== DEBUG: SUBCATEGORIAS EXISTENTES =====
-            $todasSubcategorias = Subcategoria::find()
-                ->select(['id', 'nome', 'icone', 'ordem'])
-                ->asArray()
-                ->all();
-            $debug['todas_subcategorias'] = $todasSubcategorias;
-            
-            // ===== DEBUG: QUERY DAS SEÇÕES =====
-            $querySubcategorias = Subcategoria::find()
-                ->select([
-                    'subcategoria.id',
-                    'subcategoria.nome',
-                    'subcategoria.icone',
-                    'subcategoria.ordem',
-                ])
-                ->innerJoin('produto', 'produto.subcategoria_id = subcategoria.id')
-                ->where([
-                    'produto.loja_id' => $id,
-                    'produto.deletado_em' => null,
-                    'produto.ativo' => 1,
-                    'produto.disponivel' => 1,
-                ])
-                ->groupBy('subcategoria.id')
-                ->orderBy(['subcategoria.ordem' => SORT_ASC]);
-            
-            $debug['sql_secoes'] = $querySubcategorias->createCommand()->getRawSql();
-            
             // ===== CALCULA DISTÂNCIA =====
+            $latitude = $request->get('latitude');
+            $longitude = $request->get('longitude');
             $distancia = null;
             if ($latitude && $longitude && $loja->latitude && $loja->longitude) {
                 $distancia = DistanceCalculator::euclidean(
@@ -167,11 +99,34 @@ class LojaHomeController extends AppControllerBase
                 );
             }
             
-            // ===== SEÇÕES AGRUPADAS POR SUBCATEGORIA =====
-            $secoes = $this->getSecoesPorSubcategoria($id);
-            $debug['secoes_encontradas'] = count($secoes);
+            // ===== SEÇÕES COM PRODUTOS =====
+            $secoesData = $this->getSecoesComProdutos($lojaId, $categoriaId, $search, $orderBy, $page, $perPage);
             
+            // ===== FILTER OPTIONS =====
+            $filterOptions = $this->getFilterOptions($lojaId);
+            
+            // ===== CONFIGURAÇÕES DA LOJA =====
+            $configuracoes = [];
+            if ($loja->configuracoes) {
+                if (is_array($loja->configuracoes)) {
+                    $configuracoes = $loja->configuracoes;
+                } elseif (is_string($loja->configuracoes)) {
+                    $configuracoes = json_decode($loja->configuracoes, true);
+                    if (!is_array($configuracoes)) {
+                        $configuracoes = [];
+                    }
+                }
+            }
+            
+            // ===== OPÇÕES DE MEIO A MEIO =====
+            $meioAMeio = null;
+            if (isset($configuracoes['meio_a_meio']) && $configuracoes['meio_a_meio']) {
+                $meioAMeio = $this->getMeioAMeioOptions($lojaId, $configuracoes['meio_a_meio']);
+            }
+            
+            // ===== RESPOSTA =====
             $response = [
+                // Dados da loja
                 'id' => $loja->id,
                 'nome' => $loja->nome,
                 'descricao' => $loja->descricao,
@@ -203,11 +158,16 @@ class LojaHomeController extends AppControllerBase
                 'destaque' => (bool)$loja->destaque,
                 'verificado' => (bool)$loja->verificado,
                 'trending_score' => (int)$loja->trending_score,
+                'status' => $loja->status,
                 'fluxo_status' => $loja->fluxo_status,
                 'cor_tema' => $loja->cor_tema,
-                'configuracoes' => $loja->configuracoes,
-                'secoes' => $secoes,
-                '_debug' => $debug, // REMOVER DEPOIS DO DEBUG
+                'configuracoes' => $configuracoes,
+                'meio_a_meio' => $meioAMeio,
+                // Produtos agrupados por seções
+                'secoes' => $secoesData['secoes'],
+                'pagination' => $secoesData['pagination'],
+                // Filtros
+                'filter_options' => $filterOptions,
             ];
             
             if ($distancia !== null) {
@@ -224,277 +184,23 @@ class LojaHomeController extends AppControllerBase
     }
     
     /**
-     * Obtém seções agrupadas por subcategoria
-     */
-    private function getSecoesPorSubcategoria($lojaId)
-    {
-        try {
-            $lojaId = (int)$lojaId;
-            
-            // SQL direto para buscar subcategorias com produtos
-            $sql = "SELECT subcategoria.id, subcategoria.nome, subcategoria.icone, subcategoria.ordem 
-                    FROM subcategoria 
-                    INNER JOIN produto ON produto.subcategoria_id = subcategoria.id 
-                    WHERE produto.loja_id = :loja_id 
-                        AND produto.deletado_em IS NULL 
-                        AND produto.ativo = 1 
-                        AND produto.disponivel = 1 
-                    GROUP BY subcategoria.id 
-                    ORDER BY subcategoria.ordem";
-            
-            $subcategorias = Yii::$app->db->createCommand($sql, [':loja_id' => $lojaId])->queryAll();
-            
-            if (empty($subcategorias)) {
-                return [];
-            }
-            
-            $secoes = [];
-            $ordem = 0;
-            
-            foreach ($subcategorias as $subcategoria) {
-                // Buscar produtos para esta subcategoria
-                $produtosSql = "SELECT * FROM produto 
-                            WHERE loja_id = :loja_id 
-                                AND subcategoria_id = :subcategoria_id 
-                                AND deletado_em IS NULL 
-                                AND ativo = 1 
-                                AND disponivel = 1 
-                            ORDER BY destaque DESC, nome ASC";
-                
-                $produtos = Yii::$app->db->createCommand($produtosSql, [
-                    ':loja_id' => $lojaId,
-                    ':subcategoria_id' => $subcategoria['id']
-                ])->queryAll();
-                
-                if (empty($produtos)) {
-                    continue;
-                }
-                
-                $secoes[] = [
-                    'id' => (int)$subcategoria['id'],
-                    'nome' => $subcategoria['nome'],
-                    'icone' => $subcategoria['icone'] ?: $this->getIconePorNome($subcategoria['nome']),
-                    'ordem' => $ordem++,
-                    'produtos' => array_map(function($produto) {
-                        return [
-                            'id' => (int)$produto['id'],
-                            'nome' => $produto['nome'],
-                            'descricao' => $produto['descricao'],
-                            'preco' => (float)$produto['preco'],
-                            'preco_promocional' => $produto['preco_promocional'] ? (float)$produto['preco_promocional'] : null,
-                            'imagem' => $produto['imagem'],
-                            'tempo_preparo' => $produto['tempo_preparo_min'] ? (int)$produto['tempo_preparo_min'] : null,
-                            'disponivel' => (bool)$produto['disponivel'],
-                            'destaque' => (bool)$produto['destaque'],
-                            'ingredientes' => $produto['ingredientes'] ? json_decode($produto['ingredientes'], true) : null,
-                            'opcionais' => $produto['opcoes'] ? json_decode($produto['opcoes'], true) : null,
-                        ];
-                    }, $produtos),
-                ];
-            }
-            
-            return $secoes;
-            
-        } catch (\Exception $e) {
-            Yii::error("Erro em getSecoesPorSubcategoria: " . $e->getMessage(), __METHOD__);
-            return [];
-        }
-    }
-    
-    /**
-     * GET /api/app/loja-home/search
-     */
-    public function actionSearch()
-    {
-        try {
-            $request = Yii::$app->request;
-            
-            $id = $request->get('id');
-            $lojaId = $request->get('loja_id');
-            $query = $request->get('q', '');
-            $subcategoriaId = $request->get('subcategoria_id');
-            
-            $lojaId = $id ?: $lojaId;
-            $lojaId = (int)$lojaId;
-            
-            if (!$lojaId) {
-                return ApiResponse::error('ID da loja não informado', 400);
-            }
-            
-            $lojaExists = Loja::find()
-                ->where(['id' => $lojaId, 'deletado_em' => null])
-                ->exists();
-            
-            if (!$lojaExists) {
-                return ApiResponse::error('Loja não encontrada', 404);
-            }
-            
-            $produtosQuery = Produto::find()
-                ->where([
-                    'loja_id' => $lojaId,
-                    'deletado_em' => null,
-                    'ativo' => 1,
-                    'disponivel' => 1
-                ])
-                ->joinWith('subcategoria');
-            
-            if (!empty($query)) {
-                $produtosQuery->andWhere([
-                    'or',
-                    ['like', 'produto.nome', $query],
-                    ['like', 'produto.descricao', $query],
-                ]);
-            }
-            
-            if (!empty($subcategoriaId)) {
-                $produtosQuery->andWhere(['produto.subcategoria_id' => (int)$subcategoriaId]);
-            }
-            
-            $produtos = $produtosQuery
-                ->orderBy([
-                    'produto.destaque' => SORT_DESC,
-                    'produto.nome' => SORT_ASC
-                ])
-                ->all();
-            
-            $grupos = [];
-            foreach ($produtos as $produto) {
-                $key = $produto->subcategoria_id ?? 0;
-                $nomeSecao = $produto->subcategoria->nome ?? 'Outros';
-                $iconeSecao = $produto->subcategoria->icone ?? '📦';
-                $ordemSecao = $produto->subcategoria->ordem ?? 999;
-                
-                if (!isset($grupos[$key])) {
-                    $grupos[$key] = [
-                        'id' => $key,
-                        'nome' => $nomeSecao,
-                        'icone' => $iconeSecao,
-                        'ordem' => $ordemSecao,
-                        'produtos' => []
-                    ];
-                }
-                $grupos[$key]['produtos'][] = $produto;
-            }
-            
-            $secoes = array_values($grupos);
-            usort($secoes, function($a, $b) {
-                if ($a['id'] == 0) return 1;
-                if ($b['id'] == 0) return -1;
-                return $a['ordem'] <=> $b['ordem'];
-            });
-            
-            $secoesFormatadas = [];
-            $ordem = 0;
-            foreach ($secoes as $secao) {
-                $secoesFormatadas[] = [
-                    'id' => $secao['id'],
-                    'nome' => $secao['nome'],
-                    'icone' => $secao['icone'],
-                    'ordem' => $ordem++,
-                    'produtos' => array_map(function($produto) {
-                        return [
-                            'id' => $produto->id,
-                            'nome' => $produto->nome,
-                            'descricao' => $produto->descricao,
-                            'preco' => (float)$produto->preco,
-                            'preco_promocional' => $produto->preco_promocional ? (float)$produto->preco_promocional : null,
-                            'imagem' => $produto->imagem,
-                            'tempo_preparo' => $produto->tempo_preparo ? (int)$produto->tempo_preparo : null,
-                            'disponivel' => (bool)$produto->disponivel,
-                            'destaque' => (bool)$produto->destaque,
-                            'subcategoria_id' => $produto->subcategoria_id,
-                            'subcategoria_nome' => $produto->subcategoria->nome ?? null,
-                            'ingredientes' => $produto->ingredientes,
-                            'opcionais' => $produto->opcionais,
-                        ];
-                    }, $secao['produtos']),
-                ];
-            }
-            
-            return ApiResponse::success([
-                'secoes' => $secoesFormatadas,
-                'total' => count($produtos),
-                'search_query' => $query,
-                'loja_id' => $lojaId,
-            ]);
-            
-        } catch (\Exception $e) {
-            Yii::error("Erro ao buscar produtos: " . $e->getMessage(), __METHOD__);
-            return ApiResponse::error('Erro ao buscar produtos', 500);
-        }
-    }
-    
-    /**
      * GET /api/app/loja-home/categorias
+     * Retorna as categorias disponíveis na loja
      */
     public function actionCategorias()
     {
         try {
             $request = Yii::$app->request;
-            
-            $id = $request->get('id');
-            $lojaId = $request->get('loja_id');
-            $lojaId = $id ?: $lojaId;
-            $lojaId = (int)$lojaId;
+            $lojaId = (int)$request->get('loja_id');
             
             if (!$lojaId) {
                 return ApiResponse::error('ID da loja não informado', 400);
             }
             
-            $subcategorias = Subcategoria::find()
-                ->select([
-                    'subcategoria.id',
-                    'subcategoria.nome',
-                    'subcategoria.icone',
-                    'subcategoria.ordem',
-                    'COUNT(produto.id) as total_produtos'
-                ])
-                ->joinWith(['produtos' => function($query) use ($lojaId) {
-                    $query->andWhere([
-                        'produto.loja_id' => $lojaId,
-                        'produto.deletado_em' => null,
-                        'produto.ativo' => 1,
-                        'produto.disponivel' => 1
-                    ]);
-                }])
-                ->having(['>', 'COUNT(produto.id)', 0])
-                ->groupBy('subcategoria.id')
-                ->orderBy(['subcategoria.ordem' => SORT_ASC])
-                ->all();
-            
-            $data = array_map(function($subcategoria) {
-                return [
-                    'id' => $subcategoria->id,
-                    'nome' => $subcategoria->nome,
-                    'icone' => $subcategoria->icone ?: $this->getIconePorNome($subcategoria->nome),
-                    'ordem' => (int)$subcategoria->ordem,
-                    'total_produtos' => (int)$subcategoria->total_produtos,
-                ];
-            }, $subcategorias);
-            
-            $produtosSemSubcategoria = Produto::find()
-                ->where([
-                    'loja_id' => $lojaId,
-                    'subcategoria_id' => null,
-                    'deletado_em' => null,
-                    'ativo' => 1,
-                    'disponivel' => 1
-                ])
-                ->count();
-            
-            if ($produtosSemSubcategoria > 0) {
-                $data[] = [
-                    'id' => 0,
-                    'nome' => 'Outros',
-                    'icone' => '📦',
-                    'ordem' => 999,
-                    'total_produtos' => (int)$produtosSemSubcategoria,
-                ];
-            }
+            $filterOptions = $this->getFilterOptions($lojaId);
             
             return ApiResponse::success([
-                'categorias' => $data,
-                'total' => count($data),
+                'categorias' => $filterOptions['categorias'],
                 'loja_id' => $lojaId,
             ]);
             
@@ -506,25 +212,30 @@ class LojaHomeController extends AppControllerBase
     
     /**
      * GET /api/app/loja-home/avaliacoes
+     * Retorna as avaliações da loja
      */
     public function actionAvaliacoes()
     {
         try {
             $request = Yii::$app->request;
-            
-            $id = $request->get('id');
-            $lojaId = $request->get('loja_id');
-            $lojaId = $id ?: $lojaId;
-            $lojaId = (int)$lojaId;
+            $lojaId = (int)$request->get('loja_id');
+            $page = (int)$request->get('page', 1);
+            $perPage = (int)$request->get('per_page', 10);
             
             if (!$lojaId) {
                 return ApiResponse::error('ID da loja não informado', 400);
             }
             
+            // TODO: Implementar busca de avaliações
+            
             return ApiResponse::success([
                 'items' => [],
-                'total' => 0,
-                'media' => 0,
+                'pagination' => [
+                    'total' => 0,
+                    'page' => $page,
+                    'per_page' => $perPage,
+                    'total_pages' => 0,
+                ],
                 'loja_id' => $lojaId,
             ]);
             
@@ -534,23 +245,392 @@ class LojaHomeController extends AppControllerBase
         }
     }
     
+    /**
+     * GET /api/app/loja-home/secoes
+     * Endpoint específico para buscar apenas as seções (sem produtos)
+     */
+    public function actionSecoes()
+    {
+        try {
+            $request = Yii::$app->request;
+            $lojaId = (int)$request->get('loja_id');
+            
+            if (!$lojaId) {
+                return ApiResponse::error('ID da loja não informado', 400);
+            }
+            
+            $sql = "SELECT DISTINCT s.id, s.nome, s.icone, s.ordem,
+                           COUNT(p.id) as total_produtos
+                    FROM subcategoria s
+                    INNER JOIN produto p ON p.subcategoria_id = s.id
+                    WHERE p.loja_id = :loja_id
+                        AND p.deletado_em IS NULL
+                        AND p.ativo = 1
+                        AND p.disponivel = 1
+                    GROUP BY s.id
+                    ORDER BY s.ordem ASC";
+            
+            $secoes = Yii::$app->db->createCommand($sql, [':loja_id' => $lojaId])->queryAll();
+            
+            $data = array_map(function($secao) {
+                return [
+                    'id' => (int)$secao['id'],
+                    'nome' => $secao['nome'],
+                    'icone' => $secao['icone'] ?: $this->getIconePorNome($secao['nome']),
+                    'ordem' => (int)$secao['ordem'],
+                    'total_produtos' => (int)$secao['total_produtos'],
+                ];
+            }, $secoes);
+            
+            return ApiResponse::success([
+                'items' => $data,
+                'total' => count($data),
+                'loja_id' => $lojaId,
+            ]);
+            
+        } catch (\Exception $e) {
+            Yii::error("Erro ao carregar seções: " . $e->getMessage(), __METHOD__);
+            return ApiResponse::error('Erro ao carregar seções', 500);
+        }
+    }
+    
+    /**
+     * Busca produtos agrupados por seções (subcategorias) com paginação
+     */
+    private function getSecoesComProdutos($lojaId, $categoriaId, $search, $orderBy, $page, $perPage)
+    {
+        // Parâmetros da query
+        $params = [':loja_id' => $lojaId];
+        
+        // Condições WHERE para produtos
+        $whereConditions = [
+            "p.loja_id = :loja_id",
+            "p.deletado_em IS NULL",
+            "p.ativo = 1",
+            "p.disponivel = 1"
+        ];
+        
+        // Filtro por subcategoria específica
+        if ($categoriaId && $categoriaId > 0) {
+            $whereConditions[] = "p.subcategoria_id = :categoria_id";
+            $params[':categoria_id'] = $categoriaId;
+        }
+        
+        // Filtro por busca textual
+        if (!empty($search) && trim($search) !== '') {
+            $whereConditions[] = "(p.nome LIKE :search OR p.descricao LIKE :search)";
+            $params[':search'] = "%{$search}%";
+        }
+        
+        $whereClause = implode(" AND ", $whereConditions);
+        
+        // ===== BUSCAR SUBCATEGORIAS COM PRODUTOS =====
+        $sqlSubcategorias = "SELECT DISTINCT s.id, s.nome, s.icone, s.ordem
+                             FROM subcategoria s
+                             INNER JOIN produto p ON p.subcategoria_id = s.id
+                             WHERE {$whereClause}
+                             ORDER BY s.ordem ASC";
+        
+        $subcategorias = Yii::$app->db->createCommand($sqlSubcategorias, $params)->queryAll();
+        
+        if (empty($subcategorias)) {
+            return [
+                'secoes' => [],
+                'pagination' => [
+                    'total' => 0,
+                    'page' => $page,
+                    'per_page' => $perPage,
+                    'total_pages' => 0,
+                ],
+            ];
+        }
+        
+        // ===== ORDENAÇÃO =====
+        $orderSql = $this->getOrderBySql($orderBy);
+        
+        // ===== PARA CADA SUBCATEGORIA, BUSCAR SEUS PRODUTOS =====
+        $secoes = [];
+        $totalProdutosGeral = 0;
+        
+        foreach ($subcategorias as $subcategoria) {
+            // Parâmetros para produtos desta subcategoria
+            $prodParams = [':loja_id' => $lojaId, ':subcategoria_id' => $subcategoria['id']];
+            
+            $prodWhereConditions = [
+                "p.loja_id = :loja_id",
+                "p.subcategoria_id = :subcategoria_id",
+                "p.deletado_em IS NULL",
+                "p.ativo = 1",
+                "p.disponivel = 1"
+            ];
+            
+            // Adicionar filtro de busca se houver
+            if (!empty($search) && trim($search) !== '') {
+                $prodWhereConditions[] = "(p.nome LIKE :search OR p.descricao LIKE :search)";
+                $prodParams[':search'] = "%{$search}%";
+            }
+            
+            $prodWhereClause = implode(" AND ", $prodWhereConditions);
+            
+            // Contar produtos desta subcategoria
+            $countSql = "SELECT COUNT(*) as total FROM produto p WHERE {$prodWhereClause}";
+            $total = (int)Yii::$app->db->createCommand($countSql, $prodParams)->queryScalar();
+            $totalProdutosGeral += $total;
+            
+            // Buscar produtos (sem paginação por seção, todas as seções são retornadas)
+            $sqlProdutos = "SELECT p.*
+                           FROM produto p
+                           WHERE {$prodWhereClause}
+                           {$orderSql}";
+            
+            $produtos = Yii::$app->db->createCommand($sqlProdutos, $prodParams)->queryAll();
+            
+            $secoes[] = [
+                'id' => (int)$subcategoria['id'],
+                'nome' => $subcategoria['nome'],
+                'icone' => $subcategoria['icone'] ?: $this->getIconePorNome($subcategoria['nome']),
+                'ordem' => (int)$subcategoria['ordem'],
+                'total_produtos' => $total,
+                'produtos' => array_map(function($produto) {
+                    return [
+                        'id' => (int)$produto['id'],
+                        'nome' => $produto['nome'],
+                        'tipo' => $produto['tipo'] ?? 'simples',
+                        'descricao' => $produto['descricao'],
+                        'preco' => (float)$produto['preco'],
+                        'preco_promocional' => $produto['preco_promocional'] ? (float)$produto['preco_promocional'] : null,
+                        'imagem' => $produto['imagem'],
+                        'tempo_preparo' => $produto['tempo_preparo_min'] ? (int)$produto['tempo_preparo_min'] : null,
+                        'disponivel' => (bool)$produto['disponivel'],
+                        'destaque' => (bool)$produto['destaque'],
+                        'vendas_hoje' => (int)$produto['vendas_hoje'],
+                        'nota_media' => (float)$produto['nota_media'],
+                        'total_avaliacoes' => (int)$produto['total_avaliacoes'],
+                        'subcategoria_id' => $produto['subcategoria_id'] ? (int)$produto['subcategoria_id'] : null,
+                        'ingredientes' => $produto['ingredientes'] ? json_decode($produto['ingredientes'], true) : null,
+                        'opcionais' => $produto['opcoes'] ? json_decode($produto['opcoes'], true) : null,
+                    ];
+                }, $produtos),
+            ];
+        }
+        
+        // Produtos sem subcategoria (seção "Outros")
+        $outrosParams = [':loja_id' => $lojaId];
+        $outrosWhereConditions = [
+            "p.loja_id = :loja_id",
+            "p.subcategoria_id IS NULL",
+            "p.deletado_em IS NULL",
+            "p.ativo = 1",
+            "p.disponivel = 1"
+        ];
+        
+        if (!empty($search) && trim($search) !== '') {
+            $outrosWhereConditions[] = "(p.nome LIKE :search OR p.descricao LIKE :search)";
+            $outrosParams[':search'] = "%{$search}%";
+        }
+        
+        $outrosWhereClause = implode(" AND ", $outrosWhereConditions);
+        
+        $countOutrosSql = "SELECT COUNT(*) as total FROM produto p WHERE {$outrosWhereClause}";
+        $totalOutros = (int)Yii::$app->db->createCommand($countOutrosSql, $outrosParams)->queryScalar();
+        
+        if ($totalOutros > 0) {
+            $sqlOutrosProdutos = "SELECT p.* FROM produto p WHERE {$outrosWhereClause} {$orderSql}";
+            $produtosOutros = Yii::$app->db->createCommand($sqlOutrosProdutos, $outrosParams)->queryAll();
+            
+            $secoes[] = [
+                'id' => 0,
+                'nome' => 'Outros',
+                'icone' => '📦',
+                'ordem' => 999,
+                'total_produtos' => $totalOutros,
+                'produtos' => array_map(function($produto) {
+                    return [
+                        'id' => (int)$produto['id'],
+                        'nome' => $produto['nome'],
+                        'tipo' => $produto['tipo'] ?? 'simples',
+                        'descricao' => $produto['descricao'],
+                        'preco' => (float)$produto['preco'],
+                        'preco_promocional' => $produto['preco_promocional'] ? (float)$produto['preco_promocional'] : null,
+                        'imagem' => $produto['imagem'],
+                        'tempo_preparo' => $produto['tempo_preparo_min'] ? (int)$produto['tempo_preparo_min'] : null,
+                        'disponivel' => (bool)$produto['disponivel'],
+                        'destaque' => (bool)$produto['destaque'],
+                        'vendas_hoje' => (int)$produto['vendas_hoje'],
+                        'nota_media' => (float)$produto['nota_media'],
+                        'total_avaliacoes' => (int)$produto['total_avaliacoes'],
+                        'subcategoria_id' => null,
+                        'ingredientes' => $produto['ingredientes'] ? json_decode($produto['ingredientes'], true) : null,
+                        'opcionais' => $produto['opcoes'] ? json_decode($produto['opcoes'], true) : null,
+                    ];
+                }, $produtosOutros),
+            ];
+            
+            $totalProdutosGeral += $totalOutros;
+        }
+        
+        $totalPages = ceil($totalProdutosGeral / $perPage);
+        
+        return [
+            'secoes' => $secoes,
+            'pagination' => [
+                'total' => $totalProdutosGeral,
+                'page' => $page,
+                'per_page' => $perPage,
+                'total_pages' => $totalPages,
+            ],
+        ];
+    }
+    
+    /**
+     * Retorna a cláusula ORDER BY
+     */
+    private function getOrderBySql($orderBy)
+    {
+        switch ($orderBy) {
+            case 'destaque':
+                return "ORDER BY p.destaque DESC, p.nome ASC";
+            case 'preco_asc':
+                return "ORDER BY p.preco ASC, p.nome ASC";
+            case 'preco_desc':
+                return "ORDER BY p.preco DESC, p.nome ASC";
+            case 'mais_pedidos':
+                return "ORDER BY p.vendas_hoje DESC, p.destaque DESC, p.nome ASC";
+            case 'avaliacao':
+                return "ORDER BY p.nota_media DESC, p.total_avaliacoes DESC, p.nome ASC";
+            case 'relevancia':
+            default:
+                return "ORDER BY p.destaque DESC, p.vendas_hoje DESC, p.nota_media DESC, p.nome ASC";
+        }
+    }
+    
+    /**
+     * Retorna descrição da regra de preço
+     */
+    private function getDescricaoRegra($regra)
+    {
+        switch ($regra) {
+            case 'maior':
+                return 'Preço baseado no sabor de maior valor';
+            case 'fixo':
+                return 'Preço fixo para qualquer combinação';
+            case 'media':
+            default:
+                return 'Preço baseado na média dos dois sabores';
+        }
+    }
+    
+    /**
+     * Obtém as opções de filtro
+     */
+    private function getFilterOptions($lojaId)
+    {
+        $sql = "SELECT subcategoria.id, subcategoria.nome, subcategoria.icone, subcategoria.ordem,
+                       COUNT(produto.id) as total_produtos
+                FROM subcategoria
+                INNER JOIN produto ON produto.subcategoria_id = subcategoria.id
+                WHERE produto.loja_id = :loja_id
+                    AND produto.deletado_em IS NULL
+                    AND produto.ativo = 1
+                    AND produto.disponivel = 1
+                GROUP BY subcategoria.id
+                ORDER BY subcategoria.ordem ASC";
+        
+        $categorias = Yii::$app->db->createCommand($sql, [':loja_id' => $lojaId])->queryAll();
+        
+        $categoriasOptions = [];
+        foreach ($categorias as $cat) {
+            $categoriasOptions[] = [
+                'id' => (int)$cat['id'],
+                'nome' => $cat['nome'],
+                'icone' => $cat['icone'] ?: $this->getIconePorNome($cat['nome']),
+                'total_produtos' => (int)$cat['total_produtos'],
+            ];
+        }
+        
+        $ordenacaoOptions = [
+            ['value' => 'relevancia', 'label' => 'Relevância', 'icon' => '⭐'],
+            ['value' => 'destaque', 'label' => 'Destaques', 'icon' => '🔥'],
+            ['value' => 'preco_asc', 'label' => 'Menor Preço', 'icon' => '💰'],
+            ['value' => 'preco_desc', 'label' => 'Maior Preço', 'icon' => '💸'],
+            ['value' => 'mais_pedidos', 'label' => 'Mais Pedidos', 'icon' => '📊'],
+            ['value' => 'avaliacao', 'label' => 'Melhor Avaliados', 'icon' => '⭐'],
+        ];
+        
+        return [
+            'categorias' => $categoriasOptions,
+            'ordenacao' => $ordenacaoOptions,
+        ];
+    }
+    
+    /**
+     * Obtém as opções de meio a meio para a loja
+     * 
+     * @param int $lojaId
+     * @param array|string $config
+     * @return array|null
+     */
+    private function getMeioAMeioOptions($lojaId, $config)
+    {
+        // Se a configuração é uma string, tenta decodificar
+        if (is_string($config)) {
+            $config = json_decode($config, true);
+            if (!is_array($config)) {
+                $config = [];
+            }
+        }
+        
+        // Configurações padrão
+        $defaultOptions = [
+            'ativo' => true,
+            'max_sabores' => 2,
+            'regra_preco' => 'maior',
+            'descricao_regra' => $this->getDescricaoRegra('maior'),
+            'sabores_disponiveis' => [],
+        ];
+        
+        // Mescla com as configurações existentes
+        $options = array_merge($defaultOptions, $config);
+        
+        // Se não tem sabores definidos, busca do banco
+        if (empty($options['sabores_disponiveis'])) {
+            $sql = "SELECT p.id, p.nome, p.preco, p.imagem
+                    FROM produto p
+                    WHERE p.loja_id = :loja_id
+                        AND p.deletado_em IS NULL
+                        AND p.ativo = 1
+                        AND p.disponivel = 1
+                        AND p.tipo IN ('pizza', 'sabor')
+                    ORDER BY p.nome ASC";
+            
+            $sabores = Yii::$app->db->createCommand($sql, [':loja_id' => $lojaId])->queryAll();
+            
+            $options['sabores_disponiveis'] = array_map(function($sabor) {
+                return [
+                    'id' => (int)$sabor['id'],
+                    'nome' => $sabor['nome'],
+                    'preco' => (float)$sabor['preco'],
+                    'imagem' => $sabor['imagem'],
+                ];
+            }, $sabores);
+        }
+        
+        // Atualiza a descrição da regra
+        if (isset($options['regra_preco'])) {
+            $options['descricao_regra'] = $this->getDescricaoRegra($options['regra_preco']);
+        }
+        
+        return $options;
+    }
+    
     private function getIconePorNome($nome)
     {
         $icones = [
-            'Pizzas' => '🍕',
-            'Massas' => '🍝',
-            'Hambúrgueres' => '🍔',
-            'Porções' => '🍟',
-            'Saladas' => '🥗',
-            'Entradas' => '🥨',
-            'Sobremesas' => '🍰',
-            'Doces' => '🍬',
-            'Bebidas' => '🥤',
-            'Sucos' => '🧃',
-            'Refrigerantes' => '🥤',
-            'Cervejas' => '🍺',
-            'Cafés' => '☕',
-            'Outros' => '📦',
+            'Pizzas Salgadas' => '🍕',
+            'Pizzas Doces' => '🍫',
+            'Meio a Meio' => '🤝',
+            'Bordas Recheadas' => '🧀',
+            'Calzones' => '🥟',
         ];
         
         return $icones[$nome] ?? '🍽️';

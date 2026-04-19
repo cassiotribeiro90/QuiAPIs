@@ -17,7 +17,7 @@ $config = [
         // ==================== CONFIGURAÇÃO DE USUÁRIOS ====================
         // Usuário padrão (para APP - clientes)
         'user' => [
-            'identityClass' => 'app\models\app\AppUsuario',
+            'identityClass' => 'app\models\api\app\Usuario',
             'enableAutoLogin' => false,
             'enableSession' => false,
             'loginUrl' => null,
@@ -26,7 +26,7 @@ $config = [
         // Componentes adicionais para outros tipos de usuário (usando nome diferente)
         'userLojista' => [
             'class' => 'yii\web\User',
-            'identityClass' => 'app\models\lojista\LojistaUsuario',
+            'identityClass' => 'app\models\api\lojista\LojistaUsuario',
             'enableAutoLogin' => false,
             'enableSession' => false,
             'loginUrl' => null,
@@ -34,7 +34,7 @@ $config = [
         
         'userGestor' => [
             'class' => 'yii\web\User',
-            'identityClass' => 'app\models\gestor\GestorUsuario',
+            'identityClass' => 'app\models\api\gestor\GestorUsuario',
             'enableAutoLogin' => false,
             'enableSession' => false,
             'loginUrl' => null,
@@ -93,6 +93,18 @@ $config = [
                 'POST api/app/auth/refresh-token' => 'api/app/auth/refresh-token',
                 'POST api/app/auth/logout' => 'api/app/auth/logout',
                 'GET api/app/auth/me' => 'api/app/auth/me',
+
+                // Carrinho
+                'GET api/app/carrinho' => 'api/app/carrinho/index',
+                'PUT api/app/carrinho/atualizar' => 'api/app/carrinho/atualizar',
+                'POST api/app/carrinho/limpar' => 'api/app/carrinho/limpar',
+
+                // CadastroController
+                'POST cadastro/validar-etapa1' => 'cadastro/validar-etapa1',
+                'POST cadastro/cadastrar' => 'cadastro/cadastrar',
+
+                // Endereco
+                'POST localizacao/confirmar-endereco' => 'localizacao/confirmar-endereco',
                 
                 // Lojas - Listagem
                 'GET api/app/lojas' => 'api/app/loja/index',
@@ -102,6 +114,9 @@ $config = [
                 // Suporta: /loja-home?id=1, /loja-home/1, /loja-home?loja_id=1
                 'GET api/app/loja-home' => 'api/app/loja-home/index',
                 'GET api/app/loja-home/<id:\d+>' => 'api/app/loja-home/index',
+
+                'GET api/app/produto-detail' => 'api/app/produto-detail/detalhe',
+                'GET api/app/produto-detail/<id:\d+>' => 'api/app/produto-detail/detalhe',
                 
                 // Lojas - Próximas
                 'GET api/app/lojas/proximas' => 'api/app/loja/proximas',

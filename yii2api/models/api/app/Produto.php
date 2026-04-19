@@ -53,12 +53,15 @@ use yii\db\ActiveRecord;
  * 
  * @property Loja $loja
  * @property Subcategoria $subcategoria
+ * @property ProdutoOpcaoAdicional[] $produtoOpcoesAdicionais
+ * @property AtributoOpcao[] $opcoesAtributos
  */
 class Produto extends ActiveRecord
 {
     const TIPO_SIMPLES = 'simples';
     const TIPO_COMBO = 'combo';
     const TIPO_PERSONALIZAVEL = 'personalizavel';
+    const TIPO_MEIO_A_MEIO = 'meio_a_meio';
     
     /**
      * {@inheritdoc}
@@ -81,7 +84,7 @@ class Produto extends ActiveRecord
             [['tipo'], 'string', 'max' => 20],
             [['imagens', 'ingredientes', 'selos', 'disponivel_dias', 'variacoes', 'opcoes'], 'safe'],
             [['disponivel_inicio', 'disponivel_fim', 'ultima_venda_em', 'criado_em', 'atualizado_em', 'deletado_em'], 'safe'],
-            [['tipo'], 'in', 'range' => [self::TIPO_SIMPLES, self::TIPO_COMBO, self::TIPO_PERSONALIZAVEL]],
+            [['tipo'], 'in', 'range' => [self::TIPO_SIMPLES, self::TIPO_COMBO, self::TIPO_PERSONALIZAVEL, self::TIPO_MEIO_A_MEIO]],
             [['contem_gluten', 'contem_lactose', 'vegano', 'vegetariano', 'apimentado', 'disponivel', 'ativo', 'destaque'], 'boolean'],
             [['disponivel', 'ativo', 'destaque'], 'default', 'value' => 1],
             [['ordem'], 'default', 'value' => 0],
@@ -156,6 +159,112 @@ class Produto extends ActiveRecord
     public function getSubcategoria()
     {
         return $this->hasOne(Subcategoria::class, ['id' => 'subcategoria_id']);
+    }
+    
+    /**
+     * Gets query for [[ProdutoOpcoesAdicionais]].
+     */
+    public function getProdutoOpcoesAdicionais()
+    {
+        return $this->hasMany(ProdutoOpcaoAdicional::class, ['produto_id' => 'id']);
+    }
+    
+    /**
+     * Gets query for opções atributos via tabela produto_opcao_adicional
+     */
+    public function getOpcoesAtributos()
+    {
+        return $this->hasMany(AtributoOpcao::class, ['id' => 'opcao_id'])
+            ->via('produtoOpcoesAdicionais');
+    }
+    
+    /**
+     * Gets query for opções disponíveis do produto (filtradas)
+     */
+    public function getOpcoesDisponiveis()
+    {
+        return $this->hasMany(AtributoOpcao::class, ['id' => 'opcao_id'])
+            ->via('produtoOpcoesAdicionais')
+            ->where(['atributo_opcao.disponivel' => 1]);
+    }
+    
+    /**
+     * Retorna opções agrupadas por categoria de atributo
+     */
+    public function getOpcoesAgrupadas()
+    {
+        $opcoes = $this->getOpcoesDisponiveis()
+            ->with('categoria')
+            ->orderBy(['atributo_categoria.ordem' => SORT_ASC, 'atributo_opcao.ordem' => SORT_ASC])
+            ->all();
+        
+        $agrupado = [];
+        foreach ($opcoes as $opcao) {
+            $categoriaId = $opcao->categoria_id;
+            if (!isset($agrupado[$categoriaId])) {
+                $agrupado[$categoriaId] = [
+                    'categoria' => $opcao->categoria,
+                    'opcoes' => []
+                ];
+            }
+            $agrupado[$categoriaId]['opcoes'][] = $opcao;
+        }
+        
+        return array_values($agrupado);
+    }
+    
+    /**
+     * Retorna opções agrupadas formatadas para API
+     */
+    public function getOpcoesFormatadas()
+    {
+        $agrupado = $this->getOpcoesAgrupadas();
+        $result = [];
+        
+        foreach ($agrupado as $grupo) {
+            $categoria = $grupo['categoria'];
+            $result[] = [
+                'id' => $categoria->id,
+                'nome' => $categoria->nome,
+                'descricao' => $categoria->descricao,
+                'tipo_selecao' => $categoria->tipo_selecao,
+                'obrigatorio' => (bool)$categoria->obrigatorio,
+                'minimo' => (int)$categoria->minimo,
+                'maximo' => (int)$categoria->maximo,
+                'icone' => $categoria->icone,
+                'opcoes' => array_map(function($opcao) {
+                    return [
+                        'id' => $opcao->id,
+                        'nome' => $opcao->nome,
+                        'descricao' => $opcao->descricao,
+                        'preco_adicional' => (float)$opcao->preco_adicional,
+                        'icone' => $opcao->icone,
+                        'imagem' => $opcao->imagem,
+                        'disponivel' => (bool)$opcao->disponivel,
+                        'estoque' => (int)$opcao->estoque,
+                    ];
+                }, $grupo['opcoes']),
+            ];
+        }
+        
+        return $result;
+    }
+    
+    /**
+     * Verifica se o produto tem opções
+     */
+    public function temOpcoes()
+    {
+        return $this->getProdutoOpcoesAdicionais()->count() > 0;
+    }
+    
+    /**
+     * Verifica se é um produto meio a meio
+     */
+    public function isMeioAMeio()
+    {
+        return $this->tipo === self::TIPO_MEIO_A_MEIO || 
+               ($this->subcategoria && $this->subcategoria->nome === 'Meio a Meio');
     }
     
     /**
