@@ -88,7 +88,7 @@ class CarrinhoController extends AppControllerBase
     
     /**
      * PUT /api/app/carrinho/atualizar
-     * Atualiza a quantidade de um item do carrinho
+     * Atualiza a quantidade e/ou observação de um item do carrinho
      * Se quantidade = 0, remove o item automaticamente
      */
     public function actionAtualizar()
@@ -105,7 +105,7 @@ class CarrinhoController extends AppControllerBase
             
             $itemId = $request->post('item_id');
             $produtoId = $request->post('produto_id');
-            $quantidade = (int)$request->post('quantidade', 1);
+            $quantidade = $request->post('quantidade') !== null ? (int)$request->post('quantidade') : null;
             $opcoes = $request->post('opcoes', []);
             $observacao = $request->post('observacao');
             
@@ -114,7 +114,7 @@ class CarrinhoController extends AppControllerBase
                 return ApiResponse::error('ID do item ou ID do produto não informado', 400);
             }
             
-            if ($quantidade < 0) {
+            if ($quantidade !== null && $quantidade < 0) {
                 return ApiResponse::error('Quantidade inválida', 400);
             }
             
@@ -133,13 +133,23 @@ class CarrinhoController extends AppControllerBase
                     return ApiResponse::error('Acesso negado', 403);
                 }
                 
+                // Se quantidade = 0, remove o item
                 if ($quantidade === 0) {
                     $item->delete();
                 } else {
-                    $precoUnitario = (float)$item->preco_unitario;
-                    $precoAdicionais = (float)$item->preco_adicionais;
-                    $item->quantidade = $quantidade;
-                    $item->preco_total = ($precoUnitario + $precoAdicionais) * $quantidade;
+                    // Atualizar quantidade (se fornecida)
+                    if ($quantidade !== null) {
+                        $precoUnitario = (float)$item->preco_unitario;
+                        $precoAdicionais = (float)$item->preco_adicionais;
+                        $item->quantidade = $quantidade;
+                        $item->preco_total = ($precoUnitario + $precoAdicionais) * $quantidade;
+                    }
+                    
+                    // ✅ ATUALIZAR OBSERVAÇÃO (se fornecida)
+                    if ($observacao !== null) {
+                        $item->observacao = $observacao;
+                    }
+                    
                     $item->save();
                 }
             }
@@ -211,7 +221,8 @@ class CarrinhoController extends AppControllerBase
                 }
                 
                 $precoUnitario = (float)$produto->preco;
-                $precoTotalItem = ($precoUnitario + $precoAdicionais) * $quantidade;
+                $qtd = $quantidade ?? 1;
+                $precoTotalItem = ($precoUnitario + $precoAdicionais) * $qtd;
                 
                 // Verificar se já existe item IGUAL no carrinho (mesmo produto e mesmas opções)
                 $itemExistente = CarrinhoItem::find()
@@ -224,16 +235,20 @@ class CarrinhoController extends AppControllerBase
                 
                 if ($itemExistente) {
                     // Atualizar item existente
-                    $novaQuantidade = $itemExistente->quantidade + $quantidade;
+                    $novaQuantidade = $qtd;
                     $itemExistente->quantidade = $novaQuantidade;
                     $itemExistente->preco_total = ($precoUnitario + $precoAdicionais) * $novaQuantidade;
+                    // ✅ Atualizar observação se fornecida
+                    if ($observacao !== null) {
+                        $itemExistente->observacao = $observacao;
+                    }
                     $itemExistente->save();
                 } else {
                     // Criar novo item
                     $item = new CarrinhoItem();
                     $item->carrinho_id = $carrinho->id;
                     $item->produto_id = $produtoId;
-                    $item->quantidade = $quantidade;
+                    $item->quantidade = $qtd;
                     $item->preco_unitario = $precoUnitario;
                     $item->preco_adicionais = $precoAdicionais;
                     $item->preco_total = $precoTotalItem;

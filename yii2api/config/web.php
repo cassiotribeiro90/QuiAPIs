@@ -14,6 +14,22 @@ $config = [
         '@npm'   => '@vendor/npm-asset',
     ],
     'components' => [
+        'response' => [
+            'on beforeSend' => function ($event) {
+                $response = $event->sender;
+                $request = Yii::$app->request;
+                
+                // Responder imediatamente a requisições OPTIONS (preflight CORS)
+                if ($request->getMethod() === 'OPTIONS') {
+                    $response->statusCode = 200;
+                    $response->headers->set('Access-Control-Allow-Origin', '*');
+                    $response->headers->set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+                    $response->headers->set('Access-Control-Allow-Headers', 'Authorization, Content-Type, X-Requested-With');
+                    $response->data = null;
+                    $event->handled = true;
+                }
+            },
+        ],
         // ==================== CONFIGURAÇÃO DE USUÁRIOS ====================
         // Usuário padrão (para APP - clientes)
         'user' => [

@@ -14,7 +14,7 @@ class AuthController extends AppControllerBase
 {
     public $enableCsrfValidation = false;
 
-    /**
+        /**
      * {@inheritdoc}
      * Remove autenticação das ações públicas
      */
@@ -37,6 +37,7 @@ class AuthController extends AppControllerBase
     /**
      * POST /api/app/auth/login
      * Login do cliente (email/senha)
+     * Retorna tokens + dados do usuário + endereço padrão
      */
     public function actionLogin()
     {
@@ -62,7 +63,7 @@ class AuthController extends AppControllerBase
         $this->updateLoginMetadata($usuario, 'email');
         
         return $this->successResponse(
-            $this->formatUserWithTokens($usuario),
+            $this->formatUserWithTokensAndEndereco($usuario),
             'Login realizado com sucesso'
         );
     }
@@ -70,12 +71,7 @@ class AuthController extends AppControllerBase
     /**
      * POST /api/app/auth/cadastro
      * Cadastro completo de novo cliente (dados pessoais + endereço)
-     * 
-     * Espera JSON com:
-     * - nome, email, senha, confirmar_senha (obrigatórios)
-     * - telefone (opcional)
-     * - termos_aceitos (0 ou 1, obrigatório)
-     * - endereco: { cep, logradouro, numero, complemento?, bairro, cidade, uf, referencia?, latitude?, longitude? }
+     * Retorna tokens + dados do usuário + endereço cadastrado
      */
     public function actionCadastro()
     {
@@ -115,11 +111,10 @@ class AuthController extends AppControllerBase
         if (!empty($dados['telefone'])) {
             $telefone = preg_replace('/\D/', '', $dados['telefone']);
             if (strlen($telefone) < 10 || strlen($telefone) > 11) {
-                return $this->errorResponse('Telefone inválido (deve ter DDD + 8 ou 9 dígitos)', 400);
+                return $this->errorResponse('Telefone inválido', 400);
             }
         }
-        
-        // Valida termos_aceitos (deve vir do app como 0 ou 1)
+            
         if (!isset($dados['termos_aceitos']) || !in_array($dados['termos_aceitos'], [0, 1], true)) {
             return $this->errorResponse('É necessário aceitar os termos de uso', 400);
         }
@@ -140,7 +135,7 @@ class AuthController extends AppControllerBase
         
         $cep = preg_replace('/\D/', '', $enderecoData['cep']);
         if (strlen($cep) !== 8) {
-            return $this->errorResponse('CEP inválido (deve conter 8 dígitos)', 400);
+            return $this->errorResponse('CEP inválido', 400);
         }
         
         $uf = strtoupper(trim($enderecoData['uf']));
@@ -159,8 +154,8 @@ class AuthController extends AppControllerBase
             $usuario->setPassword($senha);
             $usuario->generateAuthKey();
             $usuario->status = Usuario::STATUS_ATIVO;
-            $usuario->termos_aceitos = $termosAceitos;           // ← 0 ou 1 vindo do app
-            $usuario->termos_aceitos_em = date('Y-m-d H:i:s');   // ← data/hora do servidor
+            $usuario->termos_aceitos = $termosAceitos;
+            $usuario->termos_aceitos_em = date('Y-m-d H:i:s');
             
             if (!empty($dados['cpf'])) {
                 $usuario->cpf = preg_replace('/[^0-9]/', '', $dados['cpf']);
@@ -203,7 +198,7 @@ class AuthController extends AppControllerBase
             $this->updateLoginMetadata($usuario, 'email');
             
             return $this->successResponse(
-                $this->formatUserWithTokens($usuario),
+                $this->formatUserWithTokensAndEndereco($usuario),
                 'Cadastro realizado com sucesso',
                 201
             );
@@ -217,7 +212,8 @@ class AuthController extends AppControllerBase
 
     /**
      * POST /api/app/auth/social
-     * Login/Cadastro via redes sociais (Google, Facebook, Apple)
+     * Login/Cadastro via redes sociais
+     * Retorna tokens + dados do usuário + endereço padrão (se existir)
      */
     public function actionSocial()
     {
@@ -240,7 +236,7 @@ class AuthController extends AppControllerBase
             $this->updateLoginMetadata($usuario, $provider);
             
             return $this->successResponse(
-                $this->formatUserWithTokens($usuario),
+                $this->formatUserWithTokensAndEndereco($usuario),
                 'Login social realizado com sucesso'
             );
         } catch (\Exception $e) {
@@ -251,7 +247,7 @@ class AuthController extends AppControllerBase
 
     /**
      * POST /api/app/auth/refresh-token
-     * Renova o access token
+     * Renova o access token e retorna dados atualizados + endereço padrão
      */
     public function actionRefreshToken()
     {
@@ -272,11 +268,14 @@ class AuthController extends AppControllerBase
         }
         
         $novoAccessToken = $usuario->generateAccessToken();
+        $enderecoPadrao = $this->getEnderecoPadrao($usuario->id);
         
         return $this->successResponse([
             'access_token' => $novoAccessToken,
             'expires_in' => 7200,
             'token_type' => 'Bearer',
+            'usuario' => $this->formatUsuario($usuario),
+            'endereco' => $enderecoPadrao,
         ], 'Token renovado com sucesso');
     }
 
@@ -293,13 +292,24 @@ class AuthController extends AppControllerBase
 
     /**
      * GET /api/app/auth/me
-     * Dados do usuário logado
+     * Dados do usuário logado + endereço padrão
      */
     public function actionMe()
     {
         $usuario = $this->getUserByToken();
+        $enderecoPadrao = $this->getEnderecoPadrao($usuario->id);
         
         return $this->successResponse([
+            'usuario' => $this->formatUsuario($usuario),
+            'endereco' => $enderecoPadrao,
+        ]);
+    }
+
+    // ==================== MÉTODOS AUXILIARES ====================
+
+    private function formatUsuario(Usuario $usuario)
+    {
+        return [
             'id' => $usuario->id,
             'nome' => $usuario->nome,
             'email' => $usuario->email,
@@ -309,7 +319,49 @@ class AuthController extends AppControllerBase
             'avatar' => $usuario->avatar,
             'ultimo_login_em' => $usuario->ultimo_login_em,
             'criado_em' => $usuario->criado_em,
-        ]);
+        ];
+    }
+
+    private function getEnderecoPadrao($usuarioId)
+    {
+        $endereco = AppEndereco::find()
+            ->where(['usuario_id' => $usuarioId, 'padrao' => 1, 'ativo' => 1, 'deletado_em' => null])
+            ->one();
+            
+        if (!$endereco) {
+            return null;
+        }
+        
+        return [
+            'id' => $endereco->id,
+            'apelido' => $endereco->apelido,
+            'cep' => $endereco->cep,
+            'logradouro' => $endereco->logradouro,
+            'numero' => $endereco->numero,
+            'complemento' => $endereco->complemento,
+            'bairro' => $endereco->bairro,
+            'cidade' => $endereco->cidade,
+            'uf' => $endereco->uf,
+            'latitude' => $endereco->latitude,
+            'longitude' => $endereco->longitude,
+            'referencia' => $endereco->referencia,
+            'destinatario' => $endereco->destinatario,
+            'telefone_contato' => $endereco->telefone_contato,
+        ];
+    }
+
+    private function formatUserWithTokensAndEndereco(Usuario $usuario)
+    {
+        $enderecoPadrao = $this->getEnderecoPadrao($usuario->id);
+        
+        return [
+            'access_token' => $usuario->generateAccessToken(),
+            'refresh_token' => $usuario->generateRefreshToken(),
+            'expires_in' => 7200,
+            'token_type' => 'Bearer',
+            'usuario' => $this->formatUsuario($usuario),
+            'endereco' => $enderecoPadrao,
+        ];
     }
 
     // ==================== MÉTODOS AUXILIARES ====================
