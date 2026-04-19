@@ -10,6 +10,7 @@ use app\models\api\app\Carrinho;
 use app\models\api\app\CarrinhoItem;
 use app\models\api\app\ProdutoOpcaoAdicional;
 use app\models\api\app\AtributoOpcao;
+use app\models\api\app\AppEndereco;
 use app\controllers\api\app\AppControllerBase;
 
 class CarrinhoController extends AppControllerBase
@@ -33,8 +34,9 @@ class CarrinhoController extends AppControllerBase
     /**
      * GET /api/app/carrinho
      * Retorna todos os itens do carrinho do usuário atual
+     * @param int|null $enderecoId Parâmetro opcional para calcular taxa de entrega
      */
-    public function actionIndex()
+    public function actionIndex($enderecoId = null)
     {
         try {
             $usuarioId = Yii::$app->user->id;
@@ -43,7 +45,10 @@ class CarrinhoController extends AppControllerBase
                 return ApiResponse::error('Usuário não autenticado', 401);
             }
             
-            // Buscar carrinho ativo do usuário
+            if ($enderecoId === null) {
+                $enderecoId = Yii::$app->request->get('endereco_id');
+            }
+            
             $carrinho = Carrinho::find()
                 ->where(['usuario_id' => $usuarioId, 'status' => 'ativo'])
                 ->one();
@@ -51,33 +56,23 @@ class CarrinhoController extends AppControllerBase
             if (!$carrinho) {
                 return ApiResponse::success([
                     'itens' => [],
-                    'resumo' => [
-                        'total_itens' => 0,
-                        'subtotal' => 0,
-                        'loja_id' => null,
-                        'loja_nome' => null,
-                    ],
+                    'resumo' => $this->buildResumoVazio(),
                 ]);
             }
             
-            // Buscar itens do carrinho
             $itens = CarrinhoItem::find()
                 ->where(['carrinho_id' => $carrinho->id])
                 ->all();
             
-            // Buscar nome da loja
             $loja = $carrinho->loja;
-            
             $itensFormatados = $this->formatarItens($itens);
+            
+            $resumo = $this->buildResumoBase($carrinho, $loja);
+            $this->enriquecerResumoComFrete($resumo, $carrinho, $loja, $enderecoId, $usuarioId);
             
             return ApiResponse::success([
                 'itens' => $itensFormatados,
-                'resumo' => [
-                    'total_itens' => (int)$carrinho->total_itens,
-                    'subtotal' => (float)$carrinho->subtotal,
-                    'loja_id' => $carrinho->loja_id,
-                    'loja_nome' => $loja ? $loja->nome : null,
-                ],
+                'resumo' => $resumo,
             ]);
             
         } catch (\Exception $e) {
@@ -108,8 +103,8 @@ class CarrinhoController extends AppControllerBase
             $quantidade = $request->post('quantidade') !== null ? (int)$request->post('quantidade') : null;
             $opcoes = $request->post('opcoes', []);
             $observacao = $request->post('observacao');
+            $enderecoId = $request->post('endereco_id'); // opcional, para retornar frete no resumo
             
-            // Validação
             if (!$itemId && !$produtoId) {
                 return ApiResponse::error('ID do item ou ID do produto não informado', 400);
             }
@@ -133,11 +128,9 @@ class CarrinhoController extends AppControllerBase
                     return ApiResponse::error('Acesso negado', 403);
                 }
                 
-                // Se quantidade = 0, remove o item
                 if ($quantidade === 0) {
                     $item->delete();
                 } else {
-                    // Atualizar quantidade (se fornecida)
                     if ($quantidade !== null) {
                         $precoUnitario = (float)$item->preco_unitario;
                         $precoAdicionais = (float)$item->preco_adicionais;
@@ -145,7 +138,6 @@ class CarrinhoController extends AppControllerBase
                         $item->preco_total = ($precoUnitario + $precoAdicionais) * $quantidade;
                     }
                     
-                    // ✅ ATUALIZAR OBSERVAÇÃO (se fornecida)
                     if ($observacao !== null) {
                         $item->observacao = $observacao;
                     }
@@ -163,12 +155,10 @@ class CarrinhoController extends AppControllerBase
                     return ApiResponse::error('Produto não encontrado ou indisponível', 404);
                 }
                 
-                // Buscar ou criar carrinho
                 $carrinho = Carrinho::find()
                     ->where(['usuario_id' => $usuarioId, 'status' => 'ativo'])
                     ->one();
                 
-                // Verificar conflito de loja
                 if ($carrinho && $carrinho->loja_id != $produto->loja_id) {
                     $transaction->rollBack();
                     return ApiResponse::error(
@@ -178,7 +168,6 @@ class CarrinhoController extends AppControllerBase
                     );
                 }
                 
-                // Criar carrinho se não existir
                 if (!$carrinho) {
                     $carrinho = new Carrinho();
                     $carrinho->usuario_id = $usuarioId;
@@ -189,7 +178,6 @@ class CarrinhoController extends AppControllerBase
                     $carrinho->save();
                 }
                 
-                // Calcular preços de opcionais
                 $precoAdicionais = 0;
                 $opcoesDetalhes = [];
                 
@@ -224,7 +212,6 @@ class CarrinhoController extends AppControllerBase
                 $qtd = $quantidade ?? 1;
                 $precoTotalItem = ($precoUnitario + $precoAdicionais) * $qtd;
                 
-                // Verificar se já existe item IGUAL no carrinho (mesmo produto e mesmas opções)
                 $itemExistente = CarrinhoItem::find()
                     ->where([
                         'carrinho_id' => $carrinho->id,
@@ -234,17 +221,14 @@ class CarrinhoController extends AppControllerBase
                     ->one();
                 
                 if ($itemExistente) {
-                    // Atualizar item existente
                     $novaQuantidade = $qtd;
                     $itemExistente->quantidade = $novaQuantidade;
                     $itemExistente->preco_total = ($precoUnitario + $precoAdicionais) * $novaQuantidade;
-                    // ✅ Atualizar observação se fornecida
                     if ($observacao !== null) {
                         $itemExistente->observacao = $observacao;
                     }
                     $itemExistente->save();
                 } else {
-                    // Criar novo item
                     $item = new CarrinhoItem();
                     $item->carrinho_id = $carrinho->id;
                     $item->produto_id = $produtoId;
@@ -262,7 +246,6 @@ class CarrinhoController extends AppControllerBase
                 }
             }
             
-            // ✅ VERIFICAR SE CARRINHO FICOU VAZIO E DELETAR
             $itensRestantes = CarrinhoItem::find()
                 ->where(['carrinho_id' => $carrinho->id])
                 ->count();
@@ -273,20 +256,13 @@ class CarrinhoController extends AppControllerBase
                 
                 return ApiResponse::success([
                     'itens' => [],
-                    'resumo' => [
-                        'total_itens' => 0,
-                        'subtotal' => 0,
-                        'loja_id' => null,
-                        'loja_nome' => null,
-                    ],
+                    'resumo' => $this->buildResumoVazio(),
                 ]);
             }
             
-            // Atualizar resumo do carrinho
             $this->atualizarResumoCarrinho($carrinho->id);
             $carrinho->refresh();
             
-            // Buscar itens atualizados
             $itens = CarrinhoItem::find()
                 ->with(['produto'])
                 ->where(['carrinho_id' => $carrinho->id])
@@ -295,16 +271,14 @@ class CarrinhoController extends AppControllerBase
             $itensFormatados = $this->formatarItens($itens);
             $loja = $carrinho->loja;
             
+            $resumo = $this->buildResumoBase($carrinho, $loja);
+            $this->enriquecerResumoComFrete($resumo, $carrinho, $loja, $enderecoId, $usuarioId);
+            
             $transaction->commit();
             
             return ApiResponse::success([
                 'itens' => $itensFormatados,
-                'resumo' => [
-                    'total_itens' => (int)$carrinho->total_itens,
-                    'subtotal' => (float)$carrinho->subtotal,
-                    'loja_id' => $carrinho->loja_id,
-                    'loja_nome' => $loja ? $loja->nome : null,
-                ],
+                'resumo' => $resumo,
             ]);
             
         } catch (\Exception $e) {
@@ -312,85 +286,6 @@ class CarrinhoController extends AppControllerBase
             Yii::error("Erro ao atualizar carrinho: " . $e->getMessage(), __METHOD__);
             return ApiResponse::error('Erro ao processar requisição: ' . $e->getMessage(), 500);
         }
-    }
-
-    // ❌ REMOVER - actionRemover() não é mais necessário
-    // O método actionAtualizar() já trata quantidade = 0 como remoção
-    // ... (outros métodos mantidos: index, adicionar, limpar, calcular, resumo, verificarLoja)
-    
-    /**
-     * Atualiza os campos de resumo do carrinho (total_itens, subtotal)
-     */
-    private function atualizarResumoCarrinho($carrinhoId)
-    {
-        $sql = "
-            SELECT 
-                COALESCE(SUM(quantidade), 0) as total_itens,
-                COALESCE(SUM(preco_total), 0) as subtotal
-            FROM carrinho_item
-            WHERE carrinho_id = :carrinho_id
-        ";
-        
-        $result = Yii::$app->db->createCommand($sql, [':carrinho_id' => $carrinhoId])->queryOne();
-        
-        $carrinho = Carrinho::findOne($carrinhoId);
-        if ($carrinho) {
-            $carrinho->total_itens = (int)$result['total_itens'];
-            $carrinho->subtotal = (float)$result['subtotal'];
-            $carrinho->save(false); // false = skip validation
-        }
-    }
-    
-    /**
-     * Formata os itens do carrinho para retorno da API
-     */
-    private function formatarItens($itens)
-    {
-        $result = [];
-        
-        foreach ($itens as $item) {
-            $opcoes = $item->opcoes;
-            if (is_string($opcoes)) {
-                $opcoes = json_decode($opcoes, true);
-            }
-            if (!is_array($opcoes)) {
-                $opcoes = [];
-            }
-            
-            $opcoesDetalhes = $item->opcoes_detalhes;
-            if (is_string($opcoesDetalhes)) {
-                $opcoesDetalhes = json_decode($opcoesDetalhes, true);
-            }
-            if (!is_array($opcoesDetalhes)) {
-                $opcoesDetalhes = [];
-            }
-            
-            $metadata = $item->metadata;
-            if (is_string($metadata)) {
-                $metadata = json_decode($metadata, true);
-            }
-            if (!is_array($metadata)) {
-                $metadata = [];
-            }
-            
-            $result[] = [
-                'id' => (int)$item->id,
-                'produto_id' => (int)$item->produto_id,
-                'nome' => $item->produto_nome,
-                'descricao' => $item->produto_descricao,
-                'imagem' => $item->produto_imagem,
-                'quantidade' => (int)$item->quantidade,
-                'preco_unitario' => (float)$item->preco_unitario,
-                'preco_adicionais' => (float)$item->preco_adicionais,
-                'preco_total' => (float)$item->preco_total,
-                'opcoes' => $opcoes,
-                'opcoes_detalhes' => $opcoesDetalhes,
-                'observacao' => $item->observacao,
-                'metadata' => $metadata,
-            ];
-        }
-        
-        return $result;
     }
 
     /**
@@ -421,10 +316,7 @@ class CarrinhoController extends AppControllerBase
             return ApiResponse::success([
                 'mensagem' => 'Carrinho limpo com sucesso',
                 'itens' => [],
-                'resumo' => [
-                    'total_itens' => 0,
-                    'subtotal' => 0,
-                ],
+                'resumo' => $this->buildResumoVazio(),
             ]);
             
         } catch (\Exception $e) {
@@ -508,8 +400,9 @@ class CarrinhoController extends AppControllerBase
     /**
      * GET /api/app/carrinho/resumo
      * Retorna apenas o resumo do carrinho
+     * @param int|null $enderecoId Parâmetro opcional para calcular taxa de entrega
      */
-    public function actionResumo()
+    public function actionResumo($enderecoId = null)
     {
         try {
             $usuarioId = Yii::$app->user->id;
@@ -518,23 +411,23 @@ class CarrinhoController extends AppControllerBase
                 return ApiResponse::error('Usuário não autenticado', 401);
             }
             
+            if ($enderecoId === null) {
+                $enderecoId = Yii::$app->request->get('endereco_id');
+            }
+            
             $carrinho = Carrinho::find()
                 ->where(['usuario_id' => $usuarioId, 'status' => 'ativo'])
                 ->one();
             
             if (!$carrinho) {
-                return ApiResponse::success([
-                    'total_itens' => 0,
-                    'subtotal' => 0,
-                    'loja_id' => null,
-                ]);
+                return ApiResponse::success($this->buildResumoVazio());
             }
             
-            return ApiResponse::success([
-                'total_itens' => (int)$carrinho->total_itens,
-                'subtotal' => (float)$carrinho->subtotal,
-                'loja_id' => $carrinho->loja_id,
-            ]);
+            $loja = $carrinho->loja;
+            $resumo = $this->buildResumoBase($carrinho, $loja);
+            $this->enriquecerResumoComFrete($resumo, $carrinho, $loja, $enderecoId, $usuarioId);
+            
+            return ApiResponse::success($resumo);
             
         } catch (\Exception $e) {
             Yii::error("Erro ao carregar resumo: " . $e->getMessage(), __METHOD__);
@@ -578,5 +471,182 @@ class CarrinhoController extends AppControllerBase
             Yii::error("Erro ao verificar loja: " . $e->getMessage(), __METHOD__);
             return ApiResponse::error('Erro ao verificar loja', 500);
         }
+    }
+
+    /**
+     * Atualiza os campos de resumo do carrinho (total_itens, subtotal)
+     */
+    private function atualizarResumoCarrinho($carrinhoId)
+    {
+        $sql = "
+            SELECT 
+                COALESCE(SUM(quantidade), 0) as total_itens,
+                COALESCE(SUM(preco_total), 0) as subtotal
+            FROM carrinho_item
+            WHERE carrinho_id = :carrinho_id
+        ";
+        
+        $result = Yii::$app->db->createCommand($sql, [':carrinho_id' => $carrinhoId])->queryOne();
+        
+        $carrinho = Carrinho::findOne($carrinhoId);
+        if ($carrinho) {
+            $carrinho->total_itens = (int)$result['total_itens'];
+            $carrinho->subtotal = (float)$result['subtotal'];
+            $carrinho->save(false);
+        }
+    }
+    
+    /**
+     * Formata os itens do carrinho para retorno da API
+     */
+    private function formatarItens($itens)
+    {
+        $result = [];
+        
+        foreach ($itens as $item) {
+            $opcoes = $item->opcoes;
+            if (is_string($opcoes)) {
+                $opcoes = json_decode($opcoes, true);
+            }
+            if (!is_array($opcoes)) {
+                $opcoes = [];
+            }
+            
+            $opcoesDetalhes = $item->opcoes_detalhes;
+            if (is_string($opcoesDetalhes)) {
+                $opcoesDetalhes = json_decode($opcoesDetalhes, true);
+            }
+            if (!is_array($opcoesDetalhes)) {
+                $opcoesDetalhes = [];
+            }
+            
+            $metadata = $item->metadata;
+            if (is_string($metadata)) {
+                $metadata = json_decode($metadata, true);
+            }
+            if (!is_array($metadata)) {
+                $metadata = [];
+            }
+            
+            $result[] = [
+                'id' => (int)$item->id,
+                'produto_id' => (int)$item->produto_id,
+                'nome' => $item->produto_nome,
+                'descricao' => $item->produto_descricao,
+                'imagem' => $item->produto_imagem,
+                'quantidade' => (int)$item->quantidade,
+                'preco_unitario' => (float)$item->preco_unitario,
+                'preco_adicionais' => (float)$item->preco_adicionais,
+                'preco_total' => (float)$item->preco_total,
+                'opcoes' => $opcoes,
+                'opcoes_detalhes' => $opcoesDetalhes,
+                'observacao' => $item->observacao,
+                'metadata' => $metadata,
+            ];
+        }
+        
+        return $result;
+    }
+
+    /**
+     * Calcula a distância entre dois pontos (Haversine)
+     */
+    private function calcularDistancia($lat1, $lon1, $lat2, $lon2)
+    {
+        if (!$lat1 || !$lon1 || !$lat2 || !$lon2) {
+            return 0;
+        }
+
+        $earthRadius = 6371; // km
+
+        $latDelta = deg2rad($lat2 - $lat1);
+        $lonDelta = deg2rad($lon2 - $lon1);
+
+        $a = sin($latDelta / 2) * sin($latDelta / 2) +
+             cos(deg2rad($lat1)) * cos(deg2rad($lat2)) *
+             sin($lonDelta / 2) * sin($lonDelta / 2);
+        $c = 2 * atan2(sqrt($a), sqrt(1 - $a));
+
+        return $earthRadius * $c;
+    }
+    
+    /**
+     * Calcula a taxa de entrega baseada na distância
+     * Regra: até 5km = R$10,00; 5-10km = R$15,00; acima de 10km = R$20,00
+     */
+    private function calcularTaxaEntrega($distancia)
+    {
+        if ($distancia <= 5) {
+            return 10.00;
+        } elseif ($distancia <= 10) {
+            return 15.00;
+        } else {
+            return 20.00;
+        }
+    }
+    
+    /**
+     * Constroi resumo vazio (carrinho sem itens)
+     */
+    private function buildResumoVazio()
+    {
+        return [
+            'total_itens' => 0,
+            'subtotal' => 0.0,
+            'loja_id' => null,
+            'loja_nome' => null,
+            'taxa_entrega' => null,
+            'total' => 0.0,
+            'distancia_km' => null,
+        ];
+    }
+    
+    /**
+     * Constroi resumo base (sem frete)
+     */
+    private function buildResumoBase($carrinho, $loja)
+    {
+        return [
+            'total_itens' => (int)$carrinho->total_itens,
+            'subtotal' => (float)$carrinho->subtotal,
+            'loja_id' => $carrinho->loja_id,
+            'loja_nome' => $loja ? $loja->nome : null,
+            'taxa_entrega' => null,
+            'total' => (float)$carrinho->subtotal,
+            'distancia_km' => null,
+        ];
+    }
+    
+    /**
+     * Enriquece o resumo com taxa de entrega, total e distância (se endereco_id válido)
+     */
+    private function enriquecerResumoComFrete(&$resumo, $carrinho, $loja, $enderecoId, $usuarioId)
+    {
+        if (!$enderecoId) {
+            return;
+        }
+        
+        $endereco = AppEndereco::find()
+            ->where(['id' => $enderecoId, 'usuario_id' => $usuarioId])
+            ->one();
+            
+        if (!$endereco || !$loja) {
+            return;
+        }
+        
+        if (!$loja->latitude || !$loja->longitude || !$endereco->latitude || !$endereco->longitude) {
+            return;
+        }
+        
+        $distancia = $this->calcularDistancia(
+            $loja->latitude, $loja->longitude,
+            $endereco->latitude, $endereco->longitude
+        );
+        
+        $taxaEntrega = $this->calcularTaxaEntrega($distancia);
+        
+        $resumo['taxa_entrega'] = $taxaEntrega;
+        $resumo['total'] = (float)$carrinho->subtotal + $taxaEntrega;
+        $resumo['distancia_km'] = round($distancia, 2);
     }
 }
