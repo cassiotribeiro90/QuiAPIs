@@ -22,8 +22,6 @@ use yii\db\ActiveRecord;
  * @property string|null $data_saida
  * @property string|null $data_entrega
  * @property string|null $data_cancelamento
- * @property array $itens
- * @property int $itens_count
  * @property string|null $observacoes
  * @property float $subtotal
  * @property float $taxa_entrega
@@ -36,10 +34,6 @@ use yii\db\ActiveRecord;
  * @property array|null $endereco_entrega
  * @property int|null $tempo_espera_min
  * @property float|null $distancia_km
- * @property int|null $avaliacao_nota
- * @property string|null $avaliacao_comentario
- * @property string|null $avaliacao_resposta
- * @property string|null $avaliacao_at
  * @property int|null $tempo_real_min
  * @property float|null $entregador_lat
  * @property float|null $entregador_lng
@@ -83,17 +77,32 @@ class Pedido extends ActiveRecord
     public function rules()
     {
         return [
-            [['codigo', 'usuario_id', 'loja_id', 'itens', 'subtotal', 'total', 'forma_pagamento'], 'required'],
-            [['usuario_id', 'loja_id', 'endereco_id', 'itens_count', 'tempo_espera_min', 'tempo_real_min', 'avaliacao_nota'], 'integer'],
+            // Campos obrigatórios (itens não é coluna, portanto removido)
+            [['codigo', 'usuario_id', 'loja_id', 'subtotal', 'total', 'forma_pagamento'], 'required'],
+            
+            // Inteiros (sem itens_count ou avaliacao_nota)
+            [['usuario_id', 'loja_id', 'endereco_id', 'tempo_espera_min', 'tempo_real_min'], 'integer'],
+            
+            // Decimais
             [['subtotal', 'taxa_entrega', 'desconto', 'total', 'troco_para', 'distancia_km', 'entregador_lat', 'entregador_lng'], 'number'],
-            [['itens', 'status_historico', 'pagamento_detalhes', 'endereco_entrega'], 'safe'],
-            [['observacoes', 'avaliacao_comentario', 'avaliacao_resposta', 'cancelado_motivo'], 'string'],
+            
+            // JSON / arrays (apenas os que realmente existem na tabela)
+            [['status_historico', 'pagamento_detalhes', 'endereco_entrega'], 'safe'],
+            
+            // Textos longos
+            [['observacoes', 'cancelado_motivo'], 'string'],
+            
+            // Datas
             [['data_pedido', 'data_confirmacao', 'data_preparo', 'data_saida', 'data_entrega', 
-              'data_cancelamento', 'avaliacao_at', 'entregador_atualizado_em', 'criado_em', 
+              'data_cancelamento', 'entregador_atualizado_em', 'criado_em', 
               'atualizado_em', 'deletado_em'], 'safe'],
+            
+            // Strings limitadas
             [['codigo'], 'string', 'max' => 50],
             [['status', 'forma_pagamento', 'pagamento_status', 'cancelado_por'], 'string'],
             [['codigo'], 'unique'],
+            
+            // Validações de enum
             ['status', 'in', 'range' => [
                 self::STATUS_NOVO, self::STATUS_AGUARDANDO, self::STATUS_CONFIRMADO,
                 self::STATUS_PREPARANDO, self::STATUS_PRONTO, self::STATUS_SAIU,
@@ -126,8 +135,6 @@ class Pedido extends ActiveRecord
             'data_saida' => 'Data Saída',
             'data_entrega' => 'Data Entrega',
             'data_cancelamento' => 'Data Cancelamento',
-            'itens' => 'Itens',
-            'itens_count' => 'Quantidade de Itens',
             'observacoes' => 'Observações',
             'subtotal' => 'Subtotal',
             'taxa_entrega' => 'Taxa Entrega',
@@ -140,10 +147,6 @@ class Pedido extends ActiveRecord
             'endereco_entrega' => 'Endereço de Entrega',
             'tempo_espera_min' => 'Tempo Espera (min)',
             'distancia_km' => 'Distância (km)',
-            'avaliacao_nota' => 'Nota da Avaliação',
-            'avaliacao_comentario' => 'Comentário da Avaliação',
-            'avaliacao_resposta' => 'Resposta da Avaliação',
-            'avaliacao_at' => 'Data da Avaliação',
             'tempo_real_min' => 'Tempo Real (min)',
             'entregador_lat' => 'Latitude do Entregador',
             'entregador_lng' => 'Longitude do Entregador',
@@ -173,6 +176,22 @@ class Pedido extends ActiveRecord
         return $this->hasOne(AppEndereco::class, ['id' => 'endereco_id']);
     }
     
+    /**
+     * Relação com os itens do pedido (tabela pedido_item)
+     */
+    public function getItens()
+    {
+        return $this->hasMany(PedidoItem::class, ['pedido_id' => 'id']);
+    }
+    
+    /**
+     * Relação com a avaliação (tabela avaliacao)
+     */
+    public function getAvaliacao()
+    {
+        return $this->hasOne(Avaliacao::class, ['pedido_id' => 'id']);
+    }
+
     // ===== MÉTODOS DE STATUS =====
     
     public function isNovo()
@@ -256,22 +275,6 @@ class Pedido extends ActiveRecord
     {
         $this->pagamento_status = self::PAGAMENTO_RECUSADO;
         $this->cancelado_motivo = $motivo;
-        return $this->save(false);
-    }
-    
-    // ===== MÉTODOS DE AVALIAÇÃO =====
-    
-    public function avaliar($nota, $comentario = null)
-    {
-        $this->avaliacao_nota = $nota;
-        $this->avaliacao_comentario = $comentario;
-        $this->avaliacao_at = date('Y-m-d H:i:s');
-        return $this->save(false);
-    }
-    
-    public function responderAvaliacao($resposta)
-    {
-        $this->avaliacao_resposta = $resposta;
         return $this->save(false);
     }
     

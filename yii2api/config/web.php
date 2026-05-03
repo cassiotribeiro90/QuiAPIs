@@ -34,7 +34,7 @@ $config = [
         // Usuário padrão (para APP - clientes)
         'user' => [
             'identityClass' => 'app\models\api\app\Usuario',
-            'enableAutoLogin' => false,
+            'enableAutoLogin' => true,
             'enableSession' => false,
             'loginUrl' => null,
         ],

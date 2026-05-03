@@ -69,6 +69,7 @@ class CarrinhoController extends AppControllerBase
             
             $resumo = $this->buildResumoBase($carrinho, $loja);
             $this->enriquecerResumoComFrete($resumo, $carrinho, $loja, $enderecoId, $usuarioId);
+            $this->enriquecerResumoComFormasPagamento($resumo, $loja);
             
             return ApiResponse::success([
                 'itens' => $itensFormatados,
@@ -79,6 +80,68 @@ class CarrinhoController extends AppControllerBase
             Yii::error("Erro ao carregar carrinho: " . $e->getMessage(), __METHOD__);
             return ApiResponse::error('Erro ao carregar carrinho', 500);
         }
+    }
+
+    /**
+     * Enriquece o resumo com as formas de pagamento disponíveis da loja
+     */
+    private function enriquecerResumoComFormasPagamento(&$resumo, $loja)
+    {
+        if (!$loja) {
+            $resumo['formas_pagamento'] = [];
+            return;
+        }
+        
+        $config = $loja->configuracoes;
+        
+        if (is_string($config)) {
+            $config = json_decode($config, true);
+        }
+        
+        if (!is_array($config) || !isset($config['formas_pagamento'])) {
+            // Valores padrão caso a loja não tenha configuração
+            $resumo['formas_pagamento'] = [
+                'dinheiro' => ['label' => 'Dinheiro', 'troco' => true],
+                'cartao_entrega' => ['label' => 'Cartão na entrega', 'maquininha' => true],
+            ];
+            return;
+        }
+        
+        $resumo['formas_pagamento'] = $config['formas_pagamento'];
+    }
+
+    /**
+     * Constroi resumo vazio (carrinho sem itens)
+     */
+    private function buildResumoVazio()
+    {
+        return [
+            'total_itens' => 0,
+            'subtotal' => 0.0,
+            'loja_id' => null,
+            'loja_nome' => null,
+            'taxa_entrega' => null,
+            'total' => 0.0,
+            'distancia_km' => null,
+            'formas_pagamento' => [],
+        ];
+    }
+
+    /**
+     * Constroi resumo base (sem frete)
+     */
+    private function buildResumoBase($carrinho, $loja)
+    {
+        return [
+            'total_itens' => (int)$carrinho->total_itens,
+            'subtotal' => (float)$carrinho->subtotal,
+            'loja_id' => $carrinho->loja_id,
+            'loja_nome' => $loja ? $loja->nome : null,
+            'taxa_entrega' => null,
+            'total' => (float)$carrinho->subtotal,
+            'distancia_km' => null,
+            'formas_pagamento' => [],
+        ];
     }
     
     /**
@@ -583,38 +646,6 @@ class CarrinhoController extends AppControllerBase
         } else {
             return 20.00;
         }
-    }
-    
-    /**
-     * Constroi resumo vazio (carrinho sem itens)
-     */
-    private function buildResumoVazio()
-    {
-        return [
-            'total_itens' => 0,
-            'subtotal' => 0.0,
-            'loja_id' => null,
-            'loja_nome' => null,
-            'taxa_entrega' => null,
-            'total' => 0.0,
-            'distancia_km' => null,
-        ];
-    }
-    
-    /**
-     * Constroi resumo base (sem frete)
-     */
-    private function buildResumoBase($carrinho, $loja)
-    {
-        return [
-            'total_itens' => (int)$carrinho->total_itens,
-            'subtotal' => (float)$carrinho->subtotal,
-            'loja_id' => $carrinho->loja_id,
-            'loja_nome' => $loja ? $loja->nome : null,
-            'taxa_entrega' => null,
-            'total' => (float)$carrinho->subtotal,
-            'distancia_km' => null,
-        ];
     }
     
     /**
