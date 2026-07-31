@@ -74,11 +74,11 @@ class PedidoController extends AppControllerBase
     function calcularTaxaEntrega($distancia)
     {
         if ($distancia <= 5) {
-            return 10.00; // Taxa fixa para até 5 km
+            return 10.00;
         } elseif ($distancia <= 10) {
-            return 15.00; // Taxa fixa para entre 5 e 10 km
+            return 15.00;
         } else {
-            return 20.00; // Taxa fixa para acima de 10 km
+            return 20.00;
         }
     }
 
@@ -110,7 +110,6 @@ class PedidoController extends AppControllerBase
                 return ApiResponse::error('Carrinho vazio', 400);
             }
 
-            // 2. Endereço
             $enderecoId = $request->post('endereco_id');
             if (empty($enderecoId)) {
                 return ApiResponse::error('ID do endereço é obrigatório', 400);
@@ -149,7 +148,6 @@ class PedidoController extends AppControllerBase
                 );
             }
 
-            // 4. Calcular frete (usando método interno)
             $distancia = $this->calcularDistancia(
                 $loja->latitude,
                 $loja->longitude,
@@ -158,7 +156,6 @@ class PedidoController extends AppControllerBase
             );
             $taxaEntrega = $this->calcularTaxaEntrega($distancia);
 
-            // 5. Criar pedido
             $pedido = new Pedido();
             $pedido->usuario_id    = $usuarioId;
             $pedido->loja_id       = $carrinho->loja_id;
@@ -168,9 +165,9 @@ class PedidoController extends AppControllerBase
             $pedido->total         = $carrinho->subtotal + $taxaEntrega;
             $pedido->forma_pagamento = $formaPagamento;
             $pedido->codigo = 'PED-' . date('YmdHis') . '-' . str_pad(rand(0, 9999), 6, '0', STR_PAD_LEFT);
-            $pedido->status        =  Pedido::STATUS_NOVO; // 'novo'
-            $pedido->pagamento_status = Pedido::PAGAMENTO_PENDENTE;   // ← nome correto da coluna
-            $pedido->observacoes    = $request->post('observacao');
+            $pedido->status        = Pedido::STATUS_NOVO;
+            $pedido->pagamento_status = Pedido::PAGAMENTO_PENDENTE;
+            $pedido->observacoes   = $request->post('observacao');
 
             if ($formaPagamento === 'dinheiro') {
                 $pedido->troco_para = $request->post('troco_para');
@@ -182,7 +179,6 @@ class PedidoController extends AppControllerBase
                 throw new \Exception('Erro ao salvar pedido: ' . $errors);
             }
 
-            // 6. Transferir itens do carrinho para pedido_item
             foreach ($itensCarrinho as $item) {
                 $pedidoItem = new PedidoItem();
                 $pedidoItem->pedido_id      = $pedido->id;
@@ -200,7 +196,6 @@ class PedidoController extends AppControllerBase
                 }
             }
 
-            // 7. Esvaziar carrinho
             $carrinho->delete();
 
             $transaction->commit();
@@ -210,24 +205,26 @@ class PedidoController extends AppControllerBase
                 'total'           => $pedido->total,
                 'status'          => $pedido->status,
                 'forma_pagamento' => $pedido->forma_pagamento,
-                'criado_em'       => $pedido->criado_em,
+                'criado_em'       => $pedido->criado_em, // valor bruto do banco
             ], 'Pedido criado com sucesso', 201);
 
         } catch (\Exception $e) {
             $transaction->rollBack();
-            $message = $e->getMessage();
-            Yii::error("Erro ao criar pedido: $message", __METHOD__);
-            return ApiResponse::error('Erro ao processar pedido: ' . $message, 500);
+            Yii::error("Erro ao criar pedido: " . $e->getMessage(), __METHOD__);
+            return ApiResponse::error('Erro ao processar pedido: ' . $e->getMessage(), 500);
         }
     }
 
+    
     /**
      * GET /api/app/pedido/historico
      * Lista pedidos do usuário com total de itens em cada pedido
+     * 
+     * CORREÇÃO: Consulta SQL pura para evitar qualquer interferência da model
      */
     public function actionHistorico()
     {
-        // Obter usuário autenticado via token Bearer
+        // Autenticação via token
         $token = Yii::$app->request->headers->get('Authorization');
         $token = str_replace('Bearer ', '', $token);
         
@@ -239,41 +236,68 @@ class PedidoController extends AppControllerBase
         
         $page = (int)Yii::$app->request->get('page', 1);
         $perPage = (int)Yii::$app->request->get('per_page', 10);
+        $offset = ($page - 1) * $perPage;
 
-        $query = Pedido::find()
-            ->where(['usuario_id' => $usuarioId])
-            ->orderBy(['criado_em' => SORT_DESC]);
+        // SQL para buscar pedidos com contagem de itens e logo da loja
+        $sql = "
+            SELECT 
+                p.id,
+                p.codigo,
+                p.total,
+                p.status,
+                p.forma_pagamento,
+                p.criado_em,
+                l.nome AS loja_nome,
+                l.logo AS loja_logo,
+                COUNT(pi.id) AS item_count
+            FROM pedido p
+            LEFT JOIN loja l ON p.loja_id = l.id
+            LEFT JOIN pedido_item pi ON p.id = pi.pedido_id
+            WHERE p.usuario_id = :usuario_id
+            GROUP BY p.id, p.codigo, p.total, p.status, p.forma_pagamento, p.criado_em, l.nome, l.logo
+            ORDER BY p.criado_em DESC
+            LIMIT :limit OFFSET :offset
+        ";
 
-        $total = $query->count();
-        $pedidos = $query->offset(($page - 1) * $perPage)
-            ->limit($perPage)
-            ->all();
+        $command = Yii::$app->db->createCommand($sql);
+        $command->bindValue(':usuario_id', $usuarioId);
+        $command->bindValue(':limit', $perPage, \PDO::PARAM_INT);
+        $command->bindValue(':offset', $offset, \PDO::PARAM_INT);
 
+        $pedidos = $command->queryAll();
+
+        // Contagem total (simples)
+        $countSql = "SELECT COUNT(*) FROM pedido WHERE usuario_id = :usuario_id";
+        $total = Yii::$app->db->createCommand($countSql, [':usuario_id' => $usuarioId])->queryScalar();
+
+        // Log para depuração: mostrar os valores brutos retornados do banco
+        if (!empty($pedidos)) {
+            Yii::info("Historico - Primeiro criado_em do banco: " . $pedidos[0]['criado_em'], __METHOD__);
+            Yii::info("Historico - Último criado_em do banco: " . end($pedidos)['criado_em'], __METHOD__);
+        }
+
+        // Mapear para o formato de resposta
         $data = array_map(function($pedido) {
-            // Contar itens do pedido
-            $itemCount = PedidoItem::find()
-                ->where(['pedido_id' => $pedido->id])
-                ->count();
-            
             return [
-                'id' => $pedido->id,
-                'codigo' => $pedido->codigo,
-                'loja_nome' => $pedido->loja->nome ?? null,
-                'total' => (float)$pedido->total,
-                'status' => $pedido->status,
-                'forma_pagamento' => $pedido->forma_pagamento,
-                'item_count' => $itemCount,
-                'criado_em' => $pedido->criado_em,
+                'id'                => (int)$pedido['id'],
+                'codigo'            => $pedido['codigo'],
+                'loja_nome'         => $pedido['loja_nome'],
+                'loja_logo'         => $pedido['loja_logo'], // 🔥 NOVO CAMPO
+                'total'             => (float)$pedido['total'],
+                'status'            => $pedido['status'],
+                'forma_pagamento'   => $pedido['forma_pagamento'],
+                'item_count'        => (int)$pedido['item_count'],
+                'criado_em'         => $pedido['criado_em'],
             ];
         }, $pedidos);
 
         return ApiResponse::success([
-            'items' => $data,
+            'items'      => $data,
             'pagination' => [
-                'total' => $total,
-                'page' => $page,
-                'per_page' => $perPage,
-                'total_pages' => ceil($total / $perPage),
+                'total'        => (int)$total,
+                'page'         => $page,
+                'per_page'     => $perPage,
+                'total_pages'  => ceil($total / $perPage),
             ],
         ]);
     }
@@ -284,62 +308,59 @@ class PedidoController extends AppControllerBase
      */
     public function actionView($id = null)
     {
-        // 1. Obter ID da query string se não veio na URL
         if ($id === null) {
             $id = Yii::$app->request->get('pedido_id');
         }
         
-        // 2. Obter usuário autenticado
-        // Obter o token do header
         $token = Yii::$app->request->headers->get('Authorization');
         $token = str_replace('Bearer ', '', $token);
         
-        // Buscar usuário pelo token
         $usuario = Usuario::findIdentityByAccessToken($token);
         if (!$usuario) {
             return ApiResponse::error('Usuário não autenticado', 401);
         }
         $usuarioId = $usuario->id;  
-        // 3. Log para debug
-        Yii::error("PedidoView - Buscando ID: " . var_export($id, true) . ", Usuário: " . $usuarioId, __METHOD__);
+
+        Yii::info("PedidoView - Buscando ID: " . var_export($id, true) . ", Usuário: " . $usuarioId, __METHOD__);
         
-        // 4. Buscar pedido SEM filtro de usuário primeiro (para debug)
         $pedido = Pedido::findOne($id);
         
         if (!$pedido) {
-            Yii::error("PedidoView - Pedido ID $id NÃO ENCONTRADO na tabela", __METHOD__);
+            Yii::error("PedidoView - Pedido ID $id NÃO ENCONTRADO", __METHOD__);
             return ApiResponse::error('Pedido não encontrado (ID inexistente)', 404);
         }
         
-        // 5. Verificar se pertence ao usuário
         if ($pedido->usuario_id != $usuarioId) {
             Yii::error("PedidoView - Pedido ID $id pertence ao usuário {$pedido->usuario_id}, não ao {$usuarioId}", __METHOD__);
             return ApiResponse::error('Pedido não encontrado (não pertence a este usuário)', 404);
         }
         
-        // 6. Buscar itens
         $itens = PedidoItem::find()
             ->where(['pedido_id' => $pedido->id])
             ->all();
         
-        // 7. Buscar endereço
         $endereco = $pedido->endereco;
-        
-        // 8. Buscar loja
         $loja = $pedido->loja;
         
-        // 9. Montar resposta
+        // Formatar datas
+        $formatarData = function($data) {
+            if ($data instanceof \DateTime) {
+                return $data->format('Y-m-d H:i:s');
+            }
+            return $data;
+        };
+        
         return ApiResponse::success([
             'id' => $pedido->id,
             'codigo' => $pedido->codigo,
             'status' => $pedido->status,
             'status_historico' => $pedido->status_historico,
-            'data_pedido' => $pedido->data_pedido,
-            'data_confirmacao' => $pedido->data_confirmacao,
-            'data_preparo' => $pedido->data_preparo,
-            'data_saida' => $pedido->data_saida,
-            'data_entrega' => $pedido->data_entrega,
-            'data_cancelamento' => $pedido->data_cancelamento,
+            'data_pedido' => $formatarData($pedido->data_pedido),
+            'data_confirmacao' => $formatarData($pedido->data_confirmacao),
+            'data_preparo' => $formatarData($pedido->data_preparo),
+            'data_saida' => $formatarData($pedido->data_saida),
+            'data_entrega' => $formatarData($pedido->data_entrega),
+            'data_cancelamento' => $formatarData($pedido->data_cancelamento),
             'loja' => $loja ? [
                 'id' => $loja->id,
                 'nome' => $loja->nome,
@@ -364,7 +385,7 @@ class PedidoController extends AppControllerBase
             'tempo_espera_min' => $pedido->tempo_espera_min,
             'cancelado_por' => $pedido->cancelado_por,
             'cancelado_motivo' => $pedido->cancelado_motivo,
-            'criado_em' => $pedido->criado_em,
+            'criado_em' => $formatarData($pedido->criado_em),
             'itens' => array_map(function($item) {
                 return [
                     'id' => $item->id,
