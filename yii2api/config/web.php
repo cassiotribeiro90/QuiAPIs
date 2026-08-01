@@ -156,14 +156,18 @@ $config = [
                 
                 // Categorias gerais
                 'GET api/app/categorias' => 'api/app/categoria/index',
-                
-                // Endereços (requer autenticação)
+                                
+                // 🔥 CORRIGIDO: VERBO EXPLÍCITO
                 'GET api/app/enderecos' => 'api/app/endereco/index',
-                'GET api/app/enderecos/<id:\d+>' => 'api/app/endereco/view',
-                'POST api/app/enderecos' => 'api/app/endereco/create',
+                'POST api/app/enderecos' => 'api/app/endereco/create',  // 🔥 ADICIONAR
                 'PUT api/app/enderecos/<id:\d+>' => 'api/app/endereco/update',
                 'DELETE api/app/enderecos/<id:\d+>' => 'api/app/endereco/delete',
+                'GET api/app/enderecos/<id:\d+>' => 'api/app/endereco/view',
+                'POST api/app/enderecos/buscar-cep' => 'api/app/endereco/buscar-cep',
                 'POST api/app/enderecos/<id:\d+>/padrao' => 'api/app/endereco/set-padrao',
+                'POST api/app/auth/convidado' => 'api/app/auth/convidado',
+
+                'POST api/app/auth/convidado' => 'api/app/auth/convidado',
                 
                 // Pedidos (requer autenticação)
                 'GET api/app/pedidos' => 'api/app/pedido/index',

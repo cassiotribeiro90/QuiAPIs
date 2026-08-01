@@ -7,6 +7,7 @@ use Yii;
 use app\controllers\api\app\AppControllerBase;
 use app\models\api\app\Usuario;
 use app\models\api\app\AppEndereco;
+use app\components\ApiResponse;
 use GuzzleHttp\Client;
 use yii\db\Exception;
 
@@ -14,7 +15,7 @@ class AuthController extends AppControllerBase
 {
     public $enableCsrfValidation = false;
 
-        /**
+    /**
      * {@inheritdoc}
      * Remove autenticação das ações públicas
      */
@@ -28,10 +29,66 @@ class AuthController extends AppControllerBase
                 'cadastro',
                 'social',
                 'refresh-token',
+                'convidado',
             ];
         }
         
         return $behaviors;
+    }
+
+    /**
+     * POST /api/app/auth/convidado
+     * Cria ou recupera um usuário convidado
+     */
+    public function actionConvidado()
+    {
+        $request = Yii::$app->request;
+        
+        // Recebe device_id do header ou body
+        $deviceId = $request->getBodyParam('device_id') ?? 
+                    $request->getHeaders()->get('X-Device-Id');
+        
+        if (!$deviceId) {
+            // Fallback: gera ID único se não enviado
+            $deviceId = md5(Yii::$app->request->userIP . Yii::$app->request->userAgent);
+        }
+
+        // Busca usuário convidado com este device_id
+        $usuario = Usuario::find()
+            ->where(['device_id' => $deviceId])
+            ->andWhere(['status' => 'convidado'])
+            ->one();
+
+        if (!$usuario) {
+            $usuario = new Usuario();
+            $usuario->device_id = $deviceId;
+            $usuario->status = 'convidado';
+            $usuario->nome = null;
+            $usuario->email = null;
+            $usuario->cpf = null;
+            $usuario->telefone = null;
+            $usuario->endereco_id = null;
+            $usuario->save(false);
+        }
+
+        // Gera token (igual ao login)
+        $token = Yii::$app->security->generateRandomString(64);
+        $usuario->access_token = $token;
+        $usuario->save(false);
+
+        return ApiResponse::success([
+            'token' => $token,
+            'usuario' => [
+                'id' => $usuario->id,
+                'nome' => $usuario->nome,
+                'email' => $usuario->email,
+                'cpf' => $usuario->cpf,
+                'telefone' => $usuario->telefone,
+                'status' => $usuario->status,
+                'device_id' => $usuario->device_id,
+            ],
+            'tipo' => 'convidado',
+        ]);
     }
 
     /**
@@ -46,23 +103,23 @@ class AuthController extends AppControllerBase
         $senha = $request->post('senha');
         
         if (empty($email) || empty($senha)) {
-            return $this->errorResponse('Email e senha são obrigatórios', 400);
+            return ApiResponse::error('Email e senha são obrigatórios', 400);
         }
         
         $usuario = Usuario::findByEmail($email);
         
         if (!$usuario || !$usuario->validatePassword($senha)) {
             sleep(1);
-            return $this->errorResponse('Email ou senha inválidos', 401);
+            return ApiResponse::error('Email ou senha inválidos', 401);
         }
         
         if (!$usuario->isAtivo()) {
-            return $this->errorResponse('Usuário inativo', 401);
+            return ApiResponse::error('Usuário inativo', 401);
         }
         
         $this->updateLoginMetadata($usuario, 'email');
         
-        return $this->successResponse(
+        return ApiResponse::success(
             $this->formatUserWithTokensAndEndereco($usuario),
             'Login realizado com sucesso'
         );
@@ -82,28 +139,28 @@ class AuthController extends AppControllerBase
         $camposPessoais = ['nome', 'email', 'senha', 'confirmar_senha'];
         foreach ($camposPessoais as $campo) {
             if (empty($dados[$campo])) {
-                return $this->errorResponse("O campo '$campo' é obrigatório", 400);
+                return ApiResponse::error("O campo '$campo' é obrigatório", 400);
             }
         }
         
         // Valida email
         $email = trim($dados['email']);
         if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
-            return $this->errorResponse('Email inválido', 400);
+            return ApiResponse::error('Email inválido', 400);
         }
         
         // Verifica se email já existe
         if (Usuario::find()->where(['email' => $email])->exists()) {
-            return $this->errorResponse('Este email já está cadastrado', 409);
+            return ApiResponse::error('Este email já está cadastrado', 409);
         }
         
         // Valida senha
         $senha = $dados['senha'];
         if (strlen($senha) < 6) {
-            return $this->errorResponse('A senha deve ter pelo menos 6 caracteres', 400);
+            return ApiResponse::error('A senha deve ter pelo menos 6 caracteres', 400);
         }
         if ($senha !== $dados['confirmar_senha']) {
-            return $this->errorResponse('As senhas não coincidem', 400);
+            return ApiResponse::error('As senhas não coincidem', 400);
         }
         
         // Valida telefone (se fornecido)
@@ -111,36 +168,36 @@ class AuthController extends AppControllerBase
         if (!empty($dados['telefone'])) {
             $telefone = preg_replace('/\D/', '', $dados['telefone']);
             if (strlen($telefone) < 10 || strlen($telefone) > 11) {
-                return $this->errorResponse('Telefone inválido', 400);
+                return ApiResponse::error('Telefone inválido', 400);
             }
         }
             
         if (!isset($dados['termos_aceitos']) || !in_array($dados['termos_aceitos'], [0, 1], true)) {
-            return $this->errorResponse('É necessário aceitar os termos de uso', 400);
+            return ApiResponse::error('É necessário aceitar os termos de uso', 400);
         }
         $termosAceitos = (int)$dados['termos_aceitos'];
         
         // ========== VALIDAÇÃO DO ENDEREÇO ==========
         if (empty($dados['endereco']) || !is_array($dados['endereco'])) {
-            return $this->errorResponse('Endereço de entrega é obrigatório', 400);
+            return ApiResponse::error('Endereço de entrega é obrigatório', 400);
         }
         
         $enderecoData = $dados['endereco'];
         $camposEndereco = ['cep', 'logradouro', 'numero', 'bairro', 'cidade', 'uf'];
         foreach ($camposEndereco as $campo) {
             if (empty($enderecoData[$campo])) {
-                return $this->errorResponse("O campo de endereço '$campo' é obrigatório", 400);
+                return ApiResponse::error("O campo de endereço '$campo' é obrigatório", 400);
             }
         }
         
         $cep = preg_replace('/\D/', '', $enderecoData['cep']);
         if (strlen($cep) !== 8) {
-            return $this->errorResponse('CEP inválido', 400);
+            return ApiResponse::error('CEP inválido', 400);
         }
         
         $uf = strtoupper(trim($enderecoData['uf']));
         if (strlen($uf) !== 2) {
-            return $this->errorResponse('UF inválida', 400);
+            return ApiResponse::error('UF inválida', 400);
         }
         
         // ========== CRIAÇÃO DOS REGISTROS (TRANSAÇÃO) ==========
@@ -197,7 +254,7 @@ class AuthController extends AppControllerBase
             
             $this->updateLoginMetadata($usuario, 'email');
             
-            return $this->successResponse(
+            return ApiResponse::success(
                 $this->formatUserWithTokensAndEndereco($usuario),
                 'Cadastro realizado com sucesso',
                 201
@@ -206,7 +263,7 @@ class AuthController extends AppControllerBase
         } catch (\Exception $e) {
             $transaction->rollBack();
             Yii::error('Erro no cadastro: ' . $e->getMessage(), __METHOD__);
-            return $this->errorResponse('Erro ao processar cadastro: ' . $e->getMessage(), 500);
+            return ApiResponse::error('Erro ao processar cadastro: ' . $e->getMessage(), 500);
         }
     }
 
@@ -223,11 +280,11 @@ class AuthController extends AppControllerBase
         $additionalData = $request->post('additionalData', []);
         
         if (empty($provider) || empty($token)) {
-            return $this->errorResponse('Provider e token são obrigatórios', 400);
+            return ApiResponse::error('Provider e token são obrigatórios', 400);
         }
         
         if (!in_array($provider, ['google', 'facebook', 'apple'])) {
-            return $this->errorResponse('Provider não suportado', 400);
+            return ApiResponse::error('Provider não suportado', 400);
         }
         
         try {
@@ -235,13 +292,13 @@ class AuthController extends AppControllerBase
             $usuario = $this->findOrCreateSocialUser($provider, $socialUser);
             $this->updateLoginMetadata($usuario, $provider);
             
-            return $this->successResponse(
+            return ApiResponse::success(
                 $this->formatUserWithTokensAndEndereco($usuario),
                 'Login social realizado com sucesso'
             );
         } catch (\Exception $e) {
             Yii::error("Social login error ({$provider}): " . $e->getMessage(), __METHOD__);
-            return $this->errorResponse('Token inválido ou expirado', 401);
+            return ApiResponse::error('Token inválido ou expirado', 401);
         }
     }
 
@@ -254,23 +311,23 @@ class AuthController extends AppControllerBase
         $refreshToken = Yii::$app->request->post('refresh_token');
         
         if (empty($refreshToken)) {
-            return $this->errorResponse('Refresh token é obrigatório', 400);
+            return ApiResponse::error('Refresh token é obrigatório', 400);
         }
         
         $usuario = Usuario::findByRefreshToken($refreshToken);
         
         if (!$usuario) {
-            return $this->errorResponse('Refresh token inválido ou expirado', 401);
+            return ApiResponse::error('Refresh token inválido ou expirado', 401);
         }
         
         if (!$usuario->isAtivo()) {
-            return $this->errorResponse('Usuário inativo', 401);
+            return ApiResponse::error('Usuário inativo', 401);
         }
         
         $novoAccessToken = $usuario->generateAccessToken();
         $enderecoPadrao = $this->getEnderecoPadrao($usuario->id);
         
-        return $this->successResponse([
+        return ApiResponse::success([
             'access_token' => $novoAccessToken,
             'expires_in' => 7200,
             'token_type' => 'Bearer',
@@ -287,7 +344,7 @@ class AuthController extends AppControllerBase
     {
         $usuario = $this->getUserByToken();
         $usuario->invalidateTokens();
-        return $this->successResponse(null, 'Logout realizado com sucesso');
+        return ApiResponse::success(null, 'Logout realizado com sucesso');
     }
 
     /**
@@ -299,7 +356,7 @@ class AuthController extends AppControllerBase
         $usuario = $this->getUserByToken();
         $enderecoPadrao = $this->getEnderecoPadrao($usuario->id);
         
-        return $this->successResponse([
+        return ApiResponse::success([
             'usuario' => $this->formatUsuario($usuario),
             'endereco' => $enderecoPadrao,
         ]);
@@ -364,8 +421,6 @@ class AuthController extends AppControllerBase
         ];
     }
 
-    // ==================== MÉTODOS AUXILIARES ====================
-
     private function updateLoginMetadata(Usuario $usuario, $provider)
     {
         $usuario->ultimo_login_em = date('Y-m-d H:i:s');
@@ -373,21 +428,6 @@ class AuthController extends AppControllerBase
         $usuario->login_count = ($usuario->login_count ?? 0) + 1;
         $usuario->ultimo_login_provider = $provider;
         $usuario->save(false);
-    }
-
-    private function formatUserWithTokens(Usuario $usuario)
-    {
-        return [
-            'id' => $usuario->id,
-            'nome' => $usuario->nome,
-            'email' => $usuario->email,
-            'telefone' => $usuario->telefone,
-            'avatar' => $usuario->avatar,
-            'access_token' => $usuario->generateAccessToken(),
-            'refresh_token' => $usuario->generateRefreshToken(),
-            'expires_in' => 7200,
-            'token_type' => 'Bearer',
-        ];
     }
 
     private function validateSocialToken($provider, $token, $additionalData = [])
@@ -470,8 +510,8 @@ class AuthController extends AppControllerBase
         if (!$usuario) {
             $usuario = new Usuario();
             $usuario->status = Usuario::STATUS_ATIVO;
-            $usuario->termos_aceitos = 1;                         // ← assume que aceitou ao usar rede social
-            $usuario->termos_aceitos_em = date('Y-m-d H:i:s');   // ← data/hora do servidor
+            $usuario->termos_aceitos = 1;
+            $usuario->termos_aceitos_em = date('Y-m-d H:i:s');
             $usuario->generateAuthKey();
         }
         
@@ -484,6 +524,20 @@ class AuthController extends AppControllerBase
         
         if (!$usuario->save()) {
             throw new \Exception('Erro ao salvar usuário: ' . json_encode($usuario->errors));
+        }
+        
+        return $usuario;
+    }
+
+    private function getUserByToken()
+    {
+        $token = Yii::$app->request->headers->get('Authorization');
+        $token = str_replace('Bearer ', '', $token);
+        
+        $usuario = Usuario::find()->where(['access_token' => $token])->one();
+        
+        if (!$usuario || !$usuario->isAtivo()) {
+            throw new \yii\web\UnauthorizedHttpException('Usuário não autenticado');
         }
         
         return $usuario;

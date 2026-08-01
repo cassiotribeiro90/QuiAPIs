@@ -3,6 +3,7 @@
 namespace app\controllers\api\app;
 
 use Yii;
+use app\components\ApiResponse;
 use app\controllers\api\app\AppControllerBase;
 use GuzzleHttp\Client;
 
@@ -48,7 +49,7 @@ class LocalizacaoController extends AppControllerBase
         $longitude = $longitude ?: $request->get('longitude');
         
         if (!$latitude || !$longitude) {
-            return $this->errorResponse('Latitude e longitude são obrigatórios', 400);
+            return ApiResponse::error('Latitude e longitude são obrigatórios', 400);
         }
         
         try {
@@ -69,17 +70,16 @@ class LocalizacaoController extends AppControllerBase
             $data = json_decode($response->getBody(), true);
             
             if (empty($data) || isset($data['error'])) {
-                return $this->errorResponse('Não foi possível encontrar um endereço para esta localização', 404);
+                return ApiResponse::error('Não foi possível encontrar um endereço para esta localização', 404);
             }
             
             $endereco = $this->formatarEnderecoNominatim($data);
             
-            // Para geocodificação, pode retornar número se existir, mas o app pode ignorar
-            return $this->successResponse($endereco, 'Endereço encontrado com sucesso');
+            return ApiResponse::success($endereco, 'Endereço encontrado com sucesso');
             
         } catch (\Exception $e) {
             Yii::error("Erro na geocodificação: " . $e->getMessage(), __METHOD__);
-            return $this->errorResponse('Serviço de geocodificação indisponível', 503);
+            return ApiResponse::error('Serviço de geocodificação indisponível', 503);
         }
     }
 
@@ -100,10 +100,10 @@ class LocalizacaoController extends AppControllerBase
         $q = $q ?: $request->get('q');
         $latitude = $request->get('lat');
         $longitude = $request->get('lng');
-        $limit = (int) $request->get('limit', 10); // corrigido para 10 (estava 1500)
+        $limit = (int) $request->get('limit', 10);
         
         if (empty($q) || strlen(trim($q)) < 3) {
-            return $this->errorResponse('Termo de busca deve ter pelo menos 3 caracteres', 400);
+            return ApiResponse::error('Termo de busca deve ter pelo menos 3 caracteres', 400);
         }
         
         try {
@@ -147,7 +147,7 @@ class LocalizacaoController extends AppControllerBase
             $data = json_decode($response->getBody(), true);
             
             if (empty($data)) {
-                return $this->successResponse(['items' => []], 'Nenhum endereço encontrado');
+                return ApiResponse::success(['items' => []], 'Nenhum endereço encontrado');
             }
             
             $items = array_map([$this, 'formatarEnderecoNominatim'], $data);
@@ -179,7 +179,7 @@ class LocalizacaoController extends AppControllerBase
                 }
             }
             
-            return $this->successResponse([
+            return ApiResponse::success([
                 'items' => $items,
                 'total' => count($items),
                 'com_geolocalizacao' => ($latitude && $longitude),
@@ -187,7 +187,7 @@ class LocalizacaoController extends AppControllerBase
             
         } catch (\Exception $e) {
             Yii::error("Erro na busca de endereço: " . $e->getMessage(), __METHOD__);
-            return $this->errorResponse('Serviço de busca de endereço indisponível', 503);
+            return ApiResponse::error('Serviço de busca de endereço indisponível', 503);
         }
     }
 
@@ -209,7 +209,7 @@ class LocalizacaoController extends AppControllerBase
         $cep = trim($request->post('cep'));
 
         if (empty($logradouro) || empty($numero) || empty($cidade) || empty($uf)) {
-            return $this->errorResponse('Logradouro, número, cidade e UF são obrigatórios', 400);
+            return ApiResponse::error('Logradouro, número, cidade e UF são obrigatórios', 400);
         }
 
         try {
@@ -228,13 +228,12 @@ class LocalizacaoController extends AppControllerBase
             ];
 
             if (!empty($bairro)) {
-                $queryParams['county'] = $bairro; // ou 'suburb'
+                $queryParams['county'] = $bairro;
             }
             if (!empty($cep)) {
                 $queryParams['postalcode'] = preg_replace('/\D/', '', $cep);
             }
 
-            // Log para debug (opcional, pode comentar em produção)
             Yii::info("Confirmar endereço - Query params: " . json_encode($queryParams), __METHOD__);
 
             $response = $client->get('https://nominatim.openstreetmap.org/search', [
@@ -263,7 +262,7 @@ class LocalizacaoController extends AppControllerBase
             }
 
             if (empty($data)) {
-                return $this->successResponse([
+                return ApiResponse::success([
                     'logradouro' => $logradouro,
                     'numero' => $numero,
                     'bairro' => $bairro,
@@ -287,11 +286,11 @@ class LocalizacaoController extends AppControllerBase
                 'longitude' => isset($melhor['lon']) ? (float)$melhor['lon'] : null,
             ];
 
-            return $this->successResponse($endereco, 'Coordenadas obtidas com sucesso');
+            return ApiResponse::success($endereco, 'Coordenadas obtidas com sucesso');
 
         } catch (\Exception $e) {
             Yii::error("Erro ao confirmar endereço: " . $e->getMessage(), __METHOD__);
-            return $this->errorResponse('Serviço de geocodificação indisponível', 503);
+            return ApiResponse::error('Serviço de geocodificação indisponível', 503);
         }
     }
 
@@ -350,7 +349,6 @@ class LocalizacaoController extends AppControllerBase
             'uf' => $uf,
             'latitude' => isset($data['lat']) ? (float)$data['lat'] : null,
             'longitude' => isset($data['lon']) ? (float)$data['lon'] : null,
-            // Referência não vem da API, será preenchida no app
         ];
     }
 
