@@ -10,10 +10,6 @@ use app\controllers\api\app\AppControllerBase;
 
 class EnderecoController extends AppControllerBase
 {
-    /**
-     * {@inheritdoc}
-     * 🔥 Endereços são públicos (convidados podem criar)
-     */
     public function behaviors()
     {
         $behaviors = parent::behaviors();
@@ -33,10 +29,6 @@ class EnderecoController extends AppControllerBase
         return $behaviors;
     }
 
-    /**
-     * 🔥 OBTÉM OU CRIA USUÁRIO VIA DEVICE_ID
-     * Preenche todos os campos obrigatórios
-     */
     private function getOrCreateUsuarioByDeviceId()
     {
         $request = Yii::$app->request;
@@ -57,8 +49,8 @@ class EnderecoController extends AppControllerBase
                 $usuario = new Usuario();
                 $usuario->device_id = $deviceId;
                 $usuario->status = 'convidado';
-                $usuario->nome = 'Convidado';
-                $usuario->email = 'convidado_' . substr(md5($deviceId . microtime()), 0, 10) . '@temp.com';
+                $usuario->nome = null;
+                $usuario->email = null;
                 $usuario->auth_key = Yii::$app->security->generateRandomString(32);
                 $usuario->tipo = 'cliente';
                 $usuario->pref_tema = 'auto';
@@ -81,10 +73,15 @@ class EnderecoController extends AppControllerBase
         return $usuario;
     }
 
-    /**
-     * GET /api/app/enderecos
-     * Lista todos os endereços do usuário
-     */
+    private function gerarTokenParaUsuario(Usuario $usuario)
+    {
+        $token = Yii::$app->security->generateRandomString(64);
+        $usuario->access_token = $token;
+        $usuario->access_token_expira_em = date('Y-m-d H:i:s', time() + 7200);
+        $usuario->save(false);
+        return $token;
+    }
+
     public function actionIndex()
     {
         try {
@@ -113,10 +110,6 @@ class EnderecoController extends AppControllerBase
         }
     }
 
-    /**
-     * GET /api/app/enderecos/{id}
-     * Retorna um endereço específico
-     */
     public function actionView($id)
     {
         try {
@@ -143,18 +136,12 @@ class EnderecoController extends AppControllerBase
         }
     }
 
-    /**
-     * POST /api/app/enderecos
-     * Cria um novo endereço (PÚBLICO - convidados)
-     * 🔥 O ÚLTIMO ENDEREÇO CADASTRADO SEMPRE SERÁ O PADRÃO
-     */
     public function actionCreate()
     {
         $request = Yii::$app->request;
         $debug = [];
 
         try {
-            // 🔥 1. VERIFICA SE O DEVICE_ID CHEGOU
             $deviceId = $request->post('device_id') ?? 
                         $request->getHeaders()->get('X-Device-Id');
             $debug['device_id_recebido'] = $deviceId;
@@ -163,40 +150,16 @@ class EnderecoController extends AppControllerBase
                 return ApiResponse::error('Device ID não informado', 400, $debug);
             }
 
-            // 🔥 2. BUSCA OU CRIA USUÁRIO
-            $usuario = Usuario::find()
-                ->where(['device_id' => $deviceId])
-                ->one();
-
-            $debug['usuario_encontrado'] = $usuario ? true : false;
-
+            $usuario = $this->getOrCreateUsuarioByDeviceId();
             if (!$usuario) {
-                $usuario = new Usuario();
-                $usuario->device_id = $deviceId;
-                $usuario->status = 'convidado';
-                $usuario->nome = 'Convidado';
-                $usuario->email = 'convidado_' . substr(md5($deviceId . microtime()), 0, 10) . '@temp.com';
-                $usuario->auth_key = Yii::$app->security->generateRandomString(32);
-                $usuario->tipo = 'cliente';
-                $usuario->pref_tema = 'auto';
-                $usuario->senha_hash = null;
-                $usuario->cpf = null;
-                $usuario->telefone = null;
-                $usuario->whatsapp = null;
-                $usuario->data_nascimento = null;
-                $usuario->avatar = null;
-                $usuario->ultimo_login_em = date('Y-m-d H:i:s');
-                $usuario->save(false);
-                $debug['usuario_criado'] = true;
-                $debug['usuario_id'] = $usuario->id;
-            } else {
-                $debug['usuario_id'] = $usuario->id;
+                return ApiResponse::error('Falha ao criar usuário convidado', 500, $debug);
             }
+            $debug['usuario_id'] = $usuario->id;
 
-            // 🔥 3. DADOS RECEBIDOS
+            $token = $this->gerarTokenParaUsuario($usuario);
+            $debug['token_gerado'] = true;
             $debug['dados_recebidos'] = $request->post();
 
-            // 🔥 4. CRIA O ENDEREÇO
             $endereco = new Endereco();
             $endereco->usuario_id = $usuario->id;
             $endereco->tipo = $request->post('tipo', Endereco::TIPO_ENTREGA);
@@ -216,7 +179,6 @@ class EnderecoController extends AppControllerBase
 
             $debug['endereco_antes_salvar'] = $endereco->attributes;
 
-            // 🔥 DEFINE PADRÃO COMO 0 TEMPORARIAMENTE
             $endereco->padrao = 0;
             $endereco->ativo = 1;
 
@@ -229,13 +191,11 @@ class EnderecoController extends AppControllerBase
                 return ApiResponse::error('Erro de validação: ' . json_encode($errors), 400, $debug);
             }
 
-            // 🔥 5. DESMARCAR TODOS OS OUTROS ENDEREÇOS DO USUÁRIO COMO PADRÃO
             Endereco::updateAll(
                 ['padrao' => 0],
                 ['and', ['usuario_id' => $usuario->id], ['<>', 'id', $endereco->id]]
             );
 
-            // 🔥 6. DEFINIR O NOVO ENDEREÇO COMO PADRÃO
             $endereco->padrao = 1;
             $endereco->save(false);
 
@@ -243,13 +203,14 @@ class EnderecoController extends AppControllerBase
             $debug['endereco_salvo'] = true;
 
             return ApiResponse::success([
-                'endereco' => $this->formatEndereco($endereco),
+                'token' => $token,
                 'usuario' => [
                     'id' => $usuario->id,
                     'nome' => $usuario->nome,
                     'email' => $usuario->email,
                     'status' => $usuario->status,
                 ],
+                'endereco' => $this->formatEndereco($endereco),
                 'debug' => $debug,
             ], 'Endereço criado com sucesso', 201);
 
@@ -261,10 +222,6 @@ class EnderecoController extends AppControllerBase
         }
     }
 
-    /**
-     * PUT /api/app/enderecos/{id}
-     * Atualiza um endereço existente
-     */
     public function actionUpdate($id)
     {
         $transaction = Yii::$app->db->beginTransaction();
@@ -324,10 +281,6 @@ class EnderecoController extends AppControllerBase
         }
     }
 
-    /**
-     * DELETE /api/app/enderecos/{id}
-     * Remove um endereço (soft delete)
-     */
     public function actionDelete($id)
     {
         $transaction = Yii::$app->db->beginTransaction();
@@ -376,10 +329,6 @@ class EnderecoController extends AppControllerBase
         }
     }
 
-    /**
-     * POST /api/app/enderecos/{id}/padrao
-     * Define um endereço como padrão
-     */
     public function actionSetPadrao($id)
     {
         $transaction = Yii::$app->db->beginTransaction();
@@ -420,10 +369,6 @@ class EnderecoController extends AppControllerBase
         }
     }
 
-    /**
-     * POST /api/app/enderecos/buscar-cep
-     * Busca endereço pelo CEP via ViaCEP (PÚBLICO)
-     */
     public function actionBuscarCep()
     {
         try {
@@ -472,9 +417,6 @@ class EnderecoController extends AppControllerBase
         }
     }
 
-    /**
-     * Formata o endereço para resposta da API
-     */
     private function formatEndereco($endereco)
     {
         return [

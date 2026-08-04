@@ -1,5 +1,4 @@
 <?php
-// controllers/api/app/AuthController.php
 
 namespace app\controllers\api\app;
 
@@ -15,10 +14,6 @@ class AuthController extends AppControllerBase
 {
     public $enableCsrfValidation = false;
 
-    /**
-     * {@inheritdoc}
-     * Remove autenticação das ações públicas
-     */
     public function behaviors()
     {
         $behaviors = parent::behaviors();
@@ -30,11 +25,165 @@ class AuthController extends AppControllerBase
                 'social',
                 'refresh-token',
                 'convidado',
+                'phone',
+                'verify-otp',
             ];
         }
         
         return $behaviors;
     }
+
+    // ==================== NOVOS ENDPOINTS OTP ====================
+
+    /**
+     * POST /api/app/auth/phone
+     * Recebe telefone, vincula ao convidado existente ou cria novo
+     */
+    public function actionPhone()
+    {
+        $request = Yii::$app->request;
+        $telefone = $request->post('phone');
+        $deviceId = $request->getHeaders()->get('X-Device-Id');
+
+        if (empty($telefone)) {
+            return ApiResponse::error('Telefone é obrigatório', 400);
+        }
+
+        $telefone = preg_replace('/\D/', '', $telefone);
+
+        if (strlen($telefone) < 10 || strlen($telefone) > 11) {
+            return ApiResponse::error('Telefone inválido', 400);
+        }
+
+        // 1. Busca por telefone
+        $usuario = Usuario::find()
+            ->where(['telefone' => $telefone])
+            ->andWhere(['deletado_em' => null])
+            ->one();
+
+        // 2. Se não encontrou por telefone, busca convidado pelo device_id
+        if (!$usuario && $deviceId) {
+            $usuario = Usuario::find()
+                ->where(['device_id' => $deviceId, 'status' => 'convidado'])
+                ->andWhere(['deletado_em' => null])
+                ->one();
+            
+            if ($usuario) {
+                $usuario->telefone = $telefone;
+                $usuario->save(false);
+                Yii::info("✅ Telefone vinculado ao convidado ID {$usuario->id}", __METHOD__);
+            }
+        }
+
+        // 3. Se ainda não encontrou, cria novo usuário
+        if (!$usuario) {
+            $usuario = new Usuario();
+            $usuario->telefone = $telefone;
+            $usuario->device_id = $deviceId;
+            $usuario->nome = null;
+            $usuario->email = null;
+            $usuario->auth_key = Yii::$app->security->generateRandomString(32);
+            $usuario->tipo = Usuario::TIPO_CLIENTE;
+            $usuario->status = Usuario::STATUS_ATIVO;
+            $usuario->pref_tema = 'auto';
+            $usuario->save(false);
+
+            Yii::info("✅ Novo usuário criado via telefone: ID {$usuario->id}", __METHOD__);
+        }
+
+        // Mock: gera código OTP
+        $codigoOtp = rand(100000, 999999);
+        Yii::info("🔢 Código OTP para {$telefone}: {$codigoOtp}", __METHOD__);
+
+        $usuario->reset_token = (string)$codigoOtp;
+        $usuario->reset_token_expira_em = date('Y-m-d H:i:s', time() + 300);
+        $usuario->save(false);
+
+        return ApiResponse::success([
+            'message' => 'Código enviado com sucesso',
+            'telefone' => $telefone,
+        ]);
+    }
+
+    /**
+     * POST /api/app/auth/verify-otp
+     * Verifica código OTP (mock: qualquer código de 6 dígitos)
+     */
+    public function actionVerifyOtp()
+    {
+        $request = Yii::$app->request;
+        $telefone = $request->post('phone');
+        $codigo = $request->post('code');
+        $deviceId = $request->getHeaders()->get('X-Device-Id');
+
+        if (empty($telefone) || empty($codigo)) {
+            return ApiResponse::error('Telefone e código são obrigatórios', 400);
+        }
+
+        $telefone = preg_replace('/\D/', '', $telefone);
+        $codigo = trim($codigo);
+
+        // 1. Busca por telefone
+        $usuario = Usuario::find()
+            ->where(['telefone' => $telefone])
+            ->andWhere(['deletado_em' => null])
+            ->one();
+
+        // 2. Se não encontrou, busca convidado pelo device_id
+        if (!$usuario && $deviceId) {
+            $usuario = Usuario::find()
+                ->where(['device_id' => $deviceId, 'status' => 'convidado'])
+                ->andWhere(['deletado_em' => null])
+                ->one();
+            
+            if ($usuario) {
+                $usuario->telefone = $telefone;
+                $usuario->status = Usuario::STATUS_ATIVO;
+                Yii::info("✅ Convidado ID {$usuario->id} ativado com telefone", __METHOD__);
+            }
+        }
+
+        // 3. Se ainda não encontrou, erro
+        if (!$usuario) {
+            return ApiResponse::error('Usuário não encontrado', 404);
+        }
+
+        // Mock: aceita qualquer código de 6 dígitos
+        if (strlen($codigo) !== 6 || !ctype_digit($codigo)) {
+            return ApiResponse::error('Código deve ter 6 dígitos', 400);
+        }
+
+        // Limpa o código
+        $usuario->reset_token = null;
+        $usuario->reset_token_expira_em = null;
+
+        // Garante que o device_id está salvo
+        if (empty($usuario->device_id) && $deviceId) {
+            $usuario->device_id = $deviceId;
+        }
+
+        // Gera tokens
+        $accessToken = $usuario->generateAccessToken(7200);
+        $refreshToken = $usuario->generateRefreshToken(2592000);
+
+        $usuario->ultimo_login_em = date('Y-m-d H:i:s');
+        $usuario->login_count = ($usuario->login_count ?? 0) + 1;
+        $usuario->save(false);
+
+        $enderecoPadrao = $this->getEnderecoPadrao($usuario->id);
+
+        return ApiResponse::success([
+            'access_token' => $accessToken,
+            'refresh_token' => $refreshToken,
+            'expires_in' => 7200,
+            'token_type' => 'Bearer',
+            'usuario' => $this->formatUsuario($usuario),
+            'endereco' => $enderecoPadrao,
+            'nome_preenchido' => !empty($usuario->nome),
+        ], 'Autenticação realizada com sucesso');
+    }
+
+    // ==================== ENDPOINTS EXISTENTES ====================
 
     /**
      * POST /api/app/auth/convidado
@@ -44,16 +193,13 @@ class AuthController extends AppControllerBase
     {
         $request = Yii::$app->request;
         
-        // Recebe device_id do header ou body
         $deviceId = $request->getBodyParam('device_id') ?? 
                     $request->getHeaders()->get('X-Device-Id');
         
         if (!$deviceId) {
-            // Fallback: gera ID único se não enviado
             $deviceId = md5(Yii::$app->request->userIP . Yii::$app->request->userAgent);
         }
 
-        // Busca usuário convidado com este device_id
         $usuario = Usuario::find()
             ->where(['device_id' => $deviceId])
             ->andWhere(['status' => 'convidado'])
@@ -67,13 +213,15 @@ class AuthController extends AppControllerBase
             $usuario->email = null;
             $usuario->cpf = null;
             $usuario->telefone = null;
-            $usuario->endereco_id = null;
+            $usuario->auth_key = Yii::$app->security->generateRandomString(32);
+            $usuario->tipo = Usuario::TIPO_CLIENTE;
+            $usuario->pref_tema = 'auto';
             $usuario->save(false);
         }
 
-        // Gera token (igual ao login)
         $token = Yii::$app->security->generateRandomString(64);
         $usuario->access_token = $token;
+        $usuario->access_token_expira_em = date('Y-m-d H:i:s', time() + 7200);
         $usuario->save(false);
 
         return ApiResponse::success([
@@ -93,8 +241,7 @@ class AuthController extends AppControllerBase
 
     /**
      * POST /api/app/auth/login
-     * Login do cliente (email/senha)
-     * Retorna tokens + dados do usuário + endereço padrão
+     * Login do cliente (email/senha) - mantido para compatibilidade
      */
     public function actionLogin()
     {
@@ -127,15 +274,13 @@ class AuthController extends AppControllerBase
 
     /**
      * POST /api/app/auth/cadastro
-     * Cadastro completo de novo cliente (dados pessoais + endereço)
-     * Retorna tokens + dados do usuário + endereço cadastrado
+     * Cadastro completo de novo cliente - mantido para compatibilidade
      */
     public function actionCadastro()
     {
         $request = Yii::$app->request;
         $dados = $request->post();
         
-        // ========== VALIDAÇÃO DOS DADOS PESSOAIS ==========
         $camposPessoais = ['nome', 'email', 'senha', 'confirmar_senha'];
         foreach ($camposPessoais as $campo) {
             if (empty($dados[$campo])) {
@@ -143,18 +288,15 @@ class AuthController extends AppControllerBase
             }
         }
         
-        // Valida email
         $email = trim($dados['email']);
         if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
             return ApiResponse::error('Email inválido', 400);
         }
         
-        // Verifica se email já existe
         if (Usuario::find()->where(['email' => $email])->exists()) {
             return ApiResponse::error('Este email já está cadastrado', 409);
         }
         
-        // Valida senha
         $senha = $dados['senha'];
         if (strlen($senha) < 6) {
             return ApiResponse::error('A senha deve ter pelo menos 6 caracteres', 400);
@@ -163,7 +305,6 @@ class AuthController extends AppControllerBase
             return ApiResponse::error('As senhas não coincidem', 400);
         }
         
-        // Valida telefone (se fornecido)
         $telefone = null;
         if (!empty($dados['telefone'])) {
             $telefone = preg_replace('/\D/', '', $dados['telefone']);
@@ -177,7 +318,6 @@ class AuthController extends AppControllerBase
         }
         $termosAceitos = (int)$dados['termos_aceitos'];
         
-        // ========== VALIDAÇÃO DO ENDEREÇO ==========
         if (empty($dados['endereco']) || !is_array($dados['endereco'])) {
             return ApiResponse::error('Endereço de entrega é obrigatório', 400);
         }
@@ -200,29 +340,48 @@ class AuthController extends AppControllerBase
             return ApiResponse::error('UF inválida', 400);
         }
         
-        // ========== CRIAÇÃO DOS REGISTROS (TRANSAÇÃO) ==========
         $transaction = Yii::$app->db->beginTransaction();
         try {
-            // Cria o usuário
-            $usuario = new Usuario();
-            $usuario->nome = trim($dados['nome']);
-            $usuario->email = $email;
-            $usuario->telefone = $telefone;
-            $usuario->setPassword($senha);
-            $usuario->generateAuthKey();
-            $usuario->status = Usuario::STATUS_ATIVO;
-            $usuario->termos_aceitos = $termosAceitos;
-            $usuario->termos_aceitos_em = date('Y-m-d H:i:s');
-            
-            if (!empty($dados['cpf'])) {
-                $usuario->cpf = preg_replace('/[^0-9]/', '', $dados['cpf']);
+            $deviceId = $request->post('device_id');
+            if ($deviceId) {
+                $usuario = Usuario::find()
+                    ->where(['device_id' => $deviceId, 'status' => 'convidado'])
+                    ->one();
+                if ($usuario) {
+                    $usuario->nome = trim($dados['nome']);
+                    $usuario->email = $email;
+                    $usuario->telefone = $telefone;
+                    $usuario->setPassword($senha);
+                    $usuario->status = Usuario::STATUS_ATIVO;
+                    $usuario->termos_aceitos = $termosAceitos;
+                    $usuario->termos_aceitos_em = date('Y-m-d H:i:s');
+                    if (!empty($dados['cpf'])) {
+                        $usuario->cpf = preg_replace('/[^0-9]/', '', $dados['cpf']);
+                    }
+                    if (!$usuario->save()) {
+                        throw new \Exception('Erro ao atualizar usuário: ' . json_encode($usuario->errors));
+                    }
+                }
+            }
+
+            if (!isset($usuario)) {
+                $usuario = new Usuario();
+                $usuario->nome = trim($dados['nome']);
+                $usuario->email = $email;
+                $usuario->telefone = $telefone;
+                $usuario->setPassword($senha);
+                $usuario->generateAuthKey();
+                $usuario->status = Usuario::STATUS_ATIVO;
+                $usuario->termos_aceitos = $termosAceitos;
+                $usuario->termos_aceitos_em = date('Y-m-d H:i:s');
+                if (!empty($dados['cpf'])) {
+                    $usuario->cpf = preg_replace('/[^0-9]/', '', $dados['cpf']);
+                }
+                if (!$usuario->save()) {
+                    throw new \Exception('Erro ao salvar usuário: ' . json_encode($usuario->errors));
+                }
             }
             
-            if (!$usuario->save()) {
-                throw new \Exception('Erro ao salvar usuário: ' . json_encode($usuario->errors));
-            }
-            
-            // Cria o endereço associado
             $endereco = new AppEndereco();
             $endereco->usuario_id = $usuario->id;
             $endereco->cep = $cep;
@@ -244,7 +403,6 @@ class AuthController extends AppControllerBase
                 throw new \Exception('Erro ao salvar endereço: ' . json_encode($endereco->errors));
             }
             
-            // Se o endereço não tem coordenadas, tenta geocodificar
             if ($endereco->latitude === null || $endereco->longitude === null) {
                 $this->enriquecerCoordenadas($endereco);
                 $endereco->save(false);
@@ -269,8 +427,6 @@ class AuthController extends AppControllerBase
 
     /**
      * POST /api/app/auth/social
-     * Login/Cadastro via redes sociais
-     * Retorna tokens + dados do usuário + endereço padrão (se existir)
      */
     public function actionSocial()
     {
@@ -304,7 +460,6 @@ class AuthController extends AppControllerBase
 
     /**
      * POST /api/app/auth/refresh-token
-     * Renova o access token e retorna dados atualizados + endereço padrão
      */
     public function actionRefreshToken()
     {
@@ -338,18 +493,20 @@ class AuthController extends AppControllerBase
 
     /**
      * POST /api/app/auth/logout
-     * Logout do cliente
      */
     public function actionLogout()
     {
-        $usuario = $this->getUserByToken();
-        $usuario->invalidateTokens();
+        try {
+            $usuario = $this->getUserByToken();
+            $usuario->invalidateTokens();
+        } catch (\Exception $e) {
+            Yii::info("Logout com token inválido/ausente", __METHOD__);
+        }
         return ApiResponse::success(null, 'Logout realizado com sucesso');
     }
 
     /**
      * GET /api/app/auth/me
-     * Dados do usuário logado + endereço padrão
      */
     public function actionMe()
     {
@@ -360,6 +517,54 @@ class AuthController extends AppControllerBase
             'usuario' => $this->formatUsuario($usuario),
             'endereco' => $enderecoPadrao,
         ]);
+    }
+
+    /**
+     * PUT /api/app/auth/me
+     * Atualiza perfil do usuário (nome, email, whatsapp)
+     */
+    public function actionUpdateMe()
+    {
+        $usuario = $this->getUserByToken();
+        $request = Yii::$app->request;
+        
+        $nome = $request->post('nome');
+        $email = $request->post('email');
+        $whatsapp = $request->post('whatsapp');
+        
+        if (empty($nome)) {
+            return ApiResponse::error('Nome é obrigatório', 400);
+        }
+        
+        $usuario->nome = trim($nome);
+        
+        if (!empty($email)) {
+            $email = trim($email);
+            if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+                return ApiResponse::error('Email inválido', 400);
+            }
+            $existente = Usuario::find()
+                ->where(['email' => $email])
+                ->andWhere(['!=', 'id', $usuario->id])
+                ->andWhere(['deletado_em' => null])
+                ->one();
+            if ($existente) {
+                return ApiResponse::error('Este email já está cadastrado', 409);
+            }
+            $usuario->email = $email;
+        }
+        
+        if (!empty($whatsapp)) {
+            $usuario->whatsapp = preg_replace('/\D/', '', $whatsapp);
+        }
+        
+        if ($usuario->save()) {
+            return ApiResponse::success([
+                'usuario' => $this->formatUsuario($usuario),
+            ], 'Perfil atualizado com sucesso');
+        }
+        
+        return ApiResponse::error('Erro ao atualizar perfil', 500);
     }
 
     // ==================== MÉTODOS AUXILIARES ====================
@@ -536,7 +741,7 @@ class AuthController extends AppControllerBase
         
         $usuario = Usuario::find()->where(['access_token' => $token])->one();
         
-        if (!$usuario || !$usuario->isAtivo()) {
+        if (!$usuario || !($usuario->isAtivo() || $usuario->status === 'convidado')) {
             throw new \yii\web\UnauthorizedHttpException('Usuário não autenticado');
         }
         
@@ -566,7 +771,7 @@ class AuthController extends AppControllerBase
                 $endereco->longitude = (float)$data[0]['lon'];
             }
         } catch (\Exception $e) {
-            // Silencioso - não interrompe o cadastro
+            // Silencioso
         }
     }
 }

@@ -15,16 +15,19 @@ $config = [
     ],
     'components' => [
         'response' => [
+            'class' => 'yii\web\Response',
             'on beforeSend' => function ($event) {
                 $response = $event->sender;
                 $request = Yii::$app->request;
                 
+                // Headers CORS para todas as respostas
+                $response->headers->set('Access-Control-Allow-Origin', '*');
+                $response->headers->set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+                $response->headers->set('Access-Control-Allow-Headers', '*');
+                
                 // Responder imediatamente a requisições OPTIONS (preflight CORS)
                 if ($request->getMethod() === 'OPTIONS') {
                     $response->statusCode = 200;
-                    $response->headers->set('Access-Control-Allow-Origin', '*');
-                    $response->headers->set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-                    $response->headers->set('Access-Control-Allow-Headers', 'Authorization, Content-Type, X-Requested-With');
                     $response->data = null;
                     $event->handled = true;
                 }
@@ -157,16 +160,16 @@ $config = [
                 // Categorias gerais
                 'GET api/app/categorias' => 'api/app/categoria/index',
                                 
-                // 🔥 CORRIGIDO: VERBO EXPLÍCITO
+                // Enderecos
                 'GET api/app/enderecos' => 'api/app/endereco/index',
-                'POST api/app/enderecos' => 'api/app/endereco/create',  // 🔥 ADICIONAR
+                'POST api/app/enderecos' => 'api/app/endereco/create',
                 'PUT api/app/enderecos/<id:\d+>' => 'api/app/endereco/update',
                 'DELETE api/app/enderecos/<id:\d+>' => 'api/app/endereco/delete',
                 'GET api/app/enderecos/<id:\d+>' => 'api/app/endereco/view',
                 'POST api/app/enderecos/buscar-cep' => 'api/app/endereco/buscar-cep',
                 'POST api/app/enderecos/<id:\d+>/padrao' => 'api/app/endereco/set-padrao',
-                'POST api/app/auth/convidado' => 'api/app/auth/convidado',
-
+                
+                // Auth Convidado
                 'POST api/app/auth/convidado' => 'api/app/auth/convidado',
                 
                 // Pedidos (requer autenticação)

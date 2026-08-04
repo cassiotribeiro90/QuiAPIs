@@ -153,12 +153,15 @@ class Usuario extends ActiveRecord implements IdentityInterface
         return static::findOne(['id' => $id, 'status' => self::STATUS_ATIVO]);
     }
     
+    /**
+     * 🔥 CORRIGIDO: Aceita tokens de usuários 'ativo' E 'convidado'
+     */
     public static function findIdentityByAccessToken($token, $type = null)
     {
         return static::find()
             ->where(['access_token' => $token])
             ->andWhere(['>', 'access_token_expira_em', date('Y-m-d H:i:s')])
-            ->andWhere(['status' => self::STATUS_ATIVO])
+            ->andWhere(['in', 'status', [self::STATUS_ATIVO, 'convidado']])
             ->andWhere(['deletado_em' => null])
             ->one();
     }
