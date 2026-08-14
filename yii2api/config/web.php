@@ -112,6 +112,7 @@ $config = [
                 'POST api/app/auth/refresh-token' => 'api/app/auth/refresh-token',
                 'POST api/app/auth/logout' => 'api/app/auth/logout',
                 'GET api/app/auth/me' => 'api/app/auth/me',
+                'POST api/app/auth/me' => 'api/app/auth/update-me',
 
                 // Carrinho
                 'GET api/app/carrinho' => 'api/app/carrinho/index',
@@ -167,7 +168,7 @@ $config = [
                 'DELETE api/app/enderecos/<id:\d+>' => 'api/app/endereco/delete',
                 'GET api/app/enderecos/<id:\d+>' => 'api/app/endereco/view',
                 'POST api/app/enderecos/buscar-cep' => 'api/app/endereco/buscar-cep',
-                'POST api/app/enderecos/<id:\d+>/padrao' => 'api/app/endereco/set-padrao',
+                'PUT api/app/enderecos/<id:\d+>/set-padrao' => 'api/app/endereco/set-padrao',
                 
                 // Auth Convidado
                 'POST api/app/auth/convidado' => 'api/app/auth/convidado',

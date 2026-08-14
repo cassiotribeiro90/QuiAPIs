@@ -94,6 +94,9 @@ class AppEndereco extends ActiveRecord
         return $this->hasOne(Usuario::class, ['id' => 'usuario_id']);
     }
 
+    /**
+     * Retorna o endereço completo, formatado
+     */
     public function getEnderecoCompleto()
     {
         $endereco = "{$this->logradouro}, {$this->numero}";
@@ -104,10 +107,22 @@ class AppEndereco extends ActiveRecord
         return $endereco;
     }
 
+    /**
+     * Retorna o endereço resumido (logradouro + número)
+     */
+    public function getEnderecoResumido()
+    {
+        $endereco = trim($this->logradouro . ', ' . $this->numero);
+        if ($this->bairro) {
+            $endereco .= ' - ' . $this->bairro;
+        }
+        return $endereco;
+    }
+
     public function afterSave($insert, $changedAttributes)
     {
         parent::afterSave($insert, $changedAttributes);
-        
+
         // Se este endereço foi marcado como padrão, remove padrão dos outros
         if ($this->padrao == 1) {
             self::updateAll(

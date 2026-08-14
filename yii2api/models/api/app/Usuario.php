@@ -12,7 +12,7 @@ use yii\web\IdentityInterface;
  *
  * @property int $id
  * @property string $nome
- * @property string $email
+ * @property string|null $email
  * @property string|null $cpf
  * @property string|null $data_nascimento
  * @property string|null $telefone
@@ -72,15 +72,30 @@ class Usuario extends ActiveRecord implements IdentityInterface
     public function rules()
     {
         return [
-            [['nome', 'email', 'auth_key'], 'required'],
-            [['email'], 'unique'],
-            [['cpf'], 'unique'],
+            // ✅ Apenas nome e auth_key são obrigatórios (email foi removido)
+            [['nome', 'auth_key'], 'required'],
+            
+            // ✅ Email é opcional, mas se preenchido deve ser único e válido
+            [['email'], 'unique', 'skipOnEmpty' => true],
+            [['email'], 'email', 'skipOnEmpty' => true],
+            
+            // ✅ CPF é opcional, mas se preenchido deve ser único e ter 11 dígitos
+            [['cpf'], 'unique', 'skipOnEmpty' => true],
+            [['cpf'], 'match', 'pattern' => '/^\d{11}$/', 'message' => 'CPF deve conter 11 dígitos', 'skipOnEmpty' => true],
+            
+            // Datas
             [['data_nascimento', 'ultimo_login_em', 'primeiro_pedido_em', 'ultimo_pedido_em', 
               'termos_aceitos_em', 'criado_em', 'atualizado_em', 'deletado_em'], 'safe'],
+            
+            // Inteiros
             [['telefone_verificado', 'login_count', 'total_pedidos', 'pontos', 'nivel', 
               'indicacoes_count', 'pref_notificacoes_email', 'pref_notificacoes_push', 
               'pref_notificacoes_sms', 'email_verificado', 'termos_aceitos'], 'integer'],
+            
+            // Decimais
             [['total_gasto'], 'number'],
+            
+            // Strings com limite
             [['nome'], 'string', 'max' => 100],
             [['email'], 'string', 'max' => 150],
             [['cpf'], 'string', 'max' => 11],
@@ -89,9 +104,9 @@ class Usuario extends ActiveRecord implements IdentityInterface
             [['auth_key'], 'string', 'max' => 32],
             [['ultimo_login_ip'], 'string', 'max' => 45],
             [['codigo_indicacao'], 'string', 'max' => 20],
+            
+            // Enums
             [['tipo', 'status', 'pref_tema'], 'string'],
-            [['email'], 'email'],
-            [['cpf'], 'match', 'pattern' => '/^\d{11}$/', 'message' => 'CPF deve conter 11 dígitos'],
             ['tipo', 'in', 'range' => [self::TIPO_CLIENTE, self::TIPO_ADMIN]],
             ['status', 'in', 'range' => [self::STATUS_ATIVO, self::STATUS_INATIVO, self::STATUS_BLOQUEADO, self::STATUS_PENDENTE]],
         ];
@@ -154,7 +169,7 @@ class Usuario extends ActiveRecord implements IdentityInterface
     }
     
     /**
-     * 🔥 CORRIGIDO: Aceita tokens de usuários 'ativo' E 'convidado'
+     * Aceita tokens de usuários 'ativo' E 'convidado'
      */
     public static function findIdentityByAccessToken($token, $type = null)
     {
@@ -226,7 +241,7 @@ class Usuario extends ActiveRecord implements IdentityInterface
         $this->auth_key = Yii::$app->security->generateRandomString();
     }
     
-    public function generateAccessToken($duracao = 7200) // 2 horas
+    public function generateAccessToken($duracao = 7200)
     {
         $this->access_token = Yii::$app->security->generateRandomString(64);
         $this->access_token_expira_em = date('Y-m-d H:i:s', time() + $duracao);
@@ -234,7 +249,7 @@ class Usuario extends ActiveRecord implements IdentityInterface
         return $this->access_token;
     }
     
-    public function generateRefreshToken($duracao = 2592000) // 30 dias
+    public function generateRefreshToken($duracao = 2592000)
     {
         $this->refresh_token = Yii::$app->security->generateRandomString(64);
         $this->refresh_token_expira_em = date('Y-m-d H:i:s', time() + $duracao);

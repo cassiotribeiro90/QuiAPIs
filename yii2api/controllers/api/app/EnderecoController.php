@@ -7,13 +7,14 @@ use app\components\ApiResponse;
 use app\models\api\app\Endereco;
 use app\models\api\app\Usuario;
 use app\controllers\api\app\AppControllerBase;
+use GuzzleHttp\Client;
 
 class EnderecoController extends AppControllerBase
 {
     public function behaviors()
     {
         $behaviors = parent::behaviors();
-        
+
         if (isset($behaviors['authenticator'])) {
             $behaviors['authenticator']['except'] = [
                 'buscar-cep',
@@ -25,14 +26,14 @@ class EnderecoController extends AppControllerBase
                 'set-padrao',
             ];
         }
-        
+
         return $behaviors;
     }
 
     private function getOrCreateUsuarioByDeviceId()
     {
         $request = Yii::$app->request;
-        $deviceId = $request->post('device_id') ?? 
+        $deviceId = $request->post('device_id') ??
                     $request->getHeaders()->get('X-Device-Id');
 
         if (!$deviceId) {
@@ -40,34 +41,52 @@ class EnderecoController extends AppControllerBase
             return null;
         }
 
+        // 1. Tenta obter usuário pelo token (autenticado)
+        $authHeader = $request->getHeaders()->get('Authorization');
+        if ($authHeader) {
+            $token = str_replace('Bearer ', '', $authHeader);
+            $usuario = Usuario::find()
+                ->where(['access_token' => $token])
+                ->andWhere(['>', 'access_token_expira_em', date('Y-m-d H:i:s')])
+                ->one();
+
+            if ($usuario) {
+                return $usuario;
+            }
+        }
+
+        // 2. Tenta por device_id
         $usuario = Usuario::find()
             ->where(['device_id' => $deviceId])
             ->one();
 
-        if (!$usuario) {
-            try {
-                $usuario = new Usuario();
-                $usuario->device_id = $deviceId;
-                $usuario->status = 'convidado';
-                $usuario->nome = null;
-                $usuario->email = null;
-                $usuario->auth_key = Yii::$app->security->generateRandomString(32);
-                $usuario->tipo = 'cliente';
-                $usuario->pref_tema = 'auto';
-                $usuario->senha_hash = null;
-                $usuario->cpf = null;
-                $usuario->telefone = null;
-                $usuario->whatsapp = null;
-                $usuario->data_nascimento = null;
-                $usuario->avatar = null;
-                $usuario->ultimo_login_em = date('Y-m-d H:i:s');
-                $usuario->save(false);
-                
-                Yii::info("✅ Usuário convidado criado: ID {$usuario->id}, device_id: $deviceId", __METHOD__);
-            } catch (\Exception $e) {
-                Yii::error("❌ Erro ao criar usuário convidado: " . $e->getMessage(), __METHOD__);
-                return null;
-            }
+        if ($usuario) {
+            return $usuario;
+        }
+
+        // 3. Cria novo convidado
+        try {
+            $usuario = new Usuario();
+            $usuario->device_id = $deviceId;
+            $usuario->status = 'convidado';
+            $usuario->nome = null;
+            $usuario->email = null;
+            $usuario->auth_key = Yii::$app->security->generateRandomString(32);
+            $usuario->tipo = 'cliente';
+            $usuario->pref_tema = 'auto';
+            $usuario->senha_hash = null;
+            $usuario->cpf = null;
+            $usuario->telefone = null;
+            $usuario->whatsapp = null;
+            $usuario->data_nascimento = null;
+            $usuario->avatar = null;
+            $usuario->ultimo_login_em = date('Y-m-d H:i:s');
+            $usuario->save(false);
+
+            Yii::info("✅ Usuário convidado criado: ID {$usuario->id}, device_id: $deviceId", __METHOD__);
+        } catch (\Exception $e) {
+            Yii::error("❌ Erro ao criar usuário convidado: " . $e->getMessage(), __METHOD__);
+            return null;
         }
 
         return $usuario;
@@ -86,7 +105,7 @@ class EnderecoController extends AppControllerBase
     {
         try {
             $usuario = $this->getOrCreateUsuarioByDeviceId();
-            
+
             if (!$usuario) {
                 return ApiResponse::error('Device ID não informado', 400);
             }
@@ -95,7 +114,6 @@ class EnderecoController extends AppControllerBase
                 ->where(['usuario_id' => $usuario->id])
                 ->andWhere(['deletado_em' => null])
                 ->andWhere(['ativo' => 1])
-                ->orderBy(['padrao' => SORT_DESC, 'criado_em' => SORT_DESC])
                 ->all();
 
             $data = array_map(function($endereco) {
@@ -103,7 +121,6 @@ class EnderecoController extends AppControllerBase
             }, $enderecos);
 
             return ApiResponse::success($data);
-
         } catch (\Exception $e) {
             Yii::error("Erro ao listar endereços: " . $e->getMessage(), __METHOD__);
             return ApiResponse::error('Erro ao listar endereços: ' . $e->getMessage(), 500);
@@ -114,7 +131,7 @@ class EnderecoController extends AppControllerBase
     {
         try {
             $usuario = $this->getOrCreateUsuarioByDeviceId();
-            
+
             if (!$usuario) {
                 return ApiResponse::error('Device ID não informado', 400);
             }
@@ -129,7 +146,6 @@ class EnderecoController extends AppControllerBase
             }
 
             return ApiResponse::success($this->formatEndereco($endereco));
-
         } catch (\Exception $e) {
             Yii::error("Erro ao buscar endereço: " . $e->getMessage(), __METHOD__);
             return ApiResponse::error('Erro ao buscar endereço', 500);
@@ -142,7 +158,7 @@ class EnderecoController extends AppControllerBase
         $debug = [];
 
         try {
-            $deviceId = $request->post('device_id') ?? 
+            $deviceId = $request->post('device_id') ??
                         $request->getHeaders()->get('X-Device-Id');
             $debug['device_id_recebido'] = $deviceId;
 
@@ -177,10 +193,9 @@ class EnderecoController extends AppControllerBase
             $endereco->destinatario = $request->post('destinatario');
             $endereco->telefone_contato = $request->post('telefone_contato');
 
-            $debug['endereco_antes_salvar'] = $endereco->attributes;
-
             $endereco->padrao = 0;
             $endereco->ativo = 1;
+            $endereco->deletado_em = null;
 
             if (!$endereco->save()) {
                 $errors = [];
@@ -193,11 +208,21 @@ class EnderecoController extends AppControllerBase
 
             Endereco::updateAll(
                 ['padrao' => 0],
-                ['and', ['usuario_id' => $usuario->id], ['<>', 'id', $endereco->id]]
+                ['and',
+                    ['usuario_id' => $usuario->id],
+                    ['<>', 'id', $endereco->id],
+                    ['deletado_em' => null],
+                ]
             );
 
             $endereco->padrao = 1;
             $endereco->save(false);
+
+            // ✅ Enriquecer coordenadas se não vieram do frontend
+            if (empty($endereco->latitude) || empty($endereco->longitude)) {
+                $this->enriquecerCoordenadas($endereco);
+                $endereco->save(false);
+            }
 
             $debug['endereco_id'] = $endereco->id;
             $debug['endereco_salvo'] = true;
@@ -213,7 +238,6 @@ class EnderecoController extends AppControllerBase
                 'endereco' => $this->formatEndereco($endereco),
                 'debug' => $debug,
             ], 'Endereço criado com sucesso', 201);
-
         } catch (\Exception $e) {
             $debug['excecao'] = $e->getMessage();
             $debug['arquivo'] = $e->getFile();
@@ -225,10 +249,10 @@ class EnderecoController extends AppControllerBase
     public function actionUpdate($id)
     {
         $transaction = Yii::$app->db->beginTransaction();
-        
+
         try {
             $usuario = $this->getOrCreateUsuarioByDeviceId();
-            
+
             if (!$usuario) {
                 return ApiResponse::error('Device ID não informado', 400);
             }
@@ -259,6 +283,14 @@ class EnderecoController extends AppControllerBase
             $endereco->destinatario = $request->post('destinatario', $endereco->destinatario);
             $endereco->telefone_contato = $request->post('telefone_contato', $endereco->telefone_contato);
 
+            $endereco->ativo = 1;
+            $endereco->deletado_em = null;
+
+            // ✅ Enriquecer coordenadas se necessário
+            if (empty($endereco->latitude) || empty($endereco->longitude)) {
+                $this->enriquecerCoordenadas($endereco);
+            }
+
             if (!$endereco->save()) {
                 $errors = [];
                 foreach ($endereco->errors as $field => $fieldErrors) {
@@ -273,7 +305,6 @@ class EnderecoController extends AppControllerBase
                 $this->formatEndereco($endereco),
                 'Endereço atualizado com sucesso'
             );
-
         } catch (\Exception $e) {
             $transaction->rollBack();
             Yii::error("Erro ao atualizar endereço: " . $e->getMessage(), __METHOD__);
@@ -284,10 +315,10 @@ class EnderecoController extends AppControllerBase
     public function actionDelete($id)
     {
         $transaction = Yii::$app->db->beginTransaction();
-        
+
         try {
             $usuario = $this->getOrCreateUsuarioByDeviceId();
-            
+
             if (!$usuario) {
                 return ApiResponse::error('Device ID não informado', 400);
             }
@@ -309,7 +340,7 @@ class EnderecoController extends AppControllerBase
                     ->andWhere(['ativo' => 1])
                     ->orderBy(['criado_em' => SORT_ASC])
                     ->one();
-                
+
                 if ($outroEndereco) {
                     $outroEndereco->padrao = 1;
                     $outroEndereco->save(false);
@@ -321,7 +352,6 @@ class EnderecoController extends AppControllerBase
             $transaction->commit();
 
             return ApiResponse::success(null, 'Endereço removido com sucesso');
-
         } catch (\Exception $e) {
             $transaction->rollBack();
             Yii::error("Erro ao remover endereço: " . $e->getMessage(), __METHOD__);
@@ -332,10 +362,10 @@ class EnderecoController extends AppControllerBase
     public function actionSetPadrao($id)
     {
         $transaction = Yii::$app->db->beginTransaction();
-        
+
         try {
             $usuario = $this->getOrCreateUsuarioByDeviceId();
-            
+
             if (!$usuario) {
                 return ApiResponse::error('Device ID não informado', 400);
             }
@@ -349,19 +379,31 @@ class EnderecoController extends AppControllerBase
                 return ApiResponse::error('Endereço não encontrado', 404);
             }
 
-            if (!$endereco->setComoPadrao()) {
-                return ApiResponse::error('Erro ao definir endereço como padrão', 400);
-            }
+            Endereco::updateAll(
+                ['padrao' => 0],
+                ['and',
+                    ['usuario_id' => $usuario->id],
+                    ['deletado_em' => null],
+                ]
+            );
 
-            $endereco = Endereco::findOne($id);
+            $endereco->padrao = 1;
+            $endereco->ativo = 1;
+            $endereco->save(false);
 
             $transaction->commit();
 
-            return ApiResponse::success(
-                $this->formatEndereco($endereco),
-                'Endereço definido como padrão'
-            );
+            $enderecos = Endereco::find()
+                ->where(['usuario_id' => $usuario->id])
+                ->andWhere(['deletado_em' => null])
+                ->andWhere(['ativo' => 1])
+                ->all();
 
+            $data = array_map(function($endereco) {
+                return $this->formatEndereco($endereco);
+            }, $enderecos);
+
+            return ApiResponse::success($data, 'Endereço definido como padrão');
         } catch (\Exception $e) {
             $transaction->rollBack();
             Yii::error("Erro ao definir endereço como padrão: " . $e->getMessage(), __METHOD__);
@@ -374,13 +416,13 @@ class EnderecoController extends AppControllerBase
         try {
             $request = Yii::$app->request;
             $cep = $request->post('cep');
-            
+
             if (empty($cep)) {
                 return ApiResponse::error('CEP é obrigatório', 400);
             }
 
             $cep = preg_replace('/\D/', '', $cep);
-            
+
             if (strlen($cep) != 8) {
                 return ApiResponse::error('CEP inválido (8 dígitos)', 400);
             }
@@ -410,10 +452,58 @@ class EnderecoController extends AppControllerBase
                 'cidade' => $data['localidade'] ?? '',
                 'uf' => $data['uf'] ?? '',
             ]);
-
         } catch (\Exception $e) {
             Yii::error("Erro ao buscar CEP: " . $e->getMessage(), __METHOD__);
             return ApiResponse::error('Erro ao buscar CEP: ' . $e->getMessage(), 500);
+        }
+    }
+
+    /**
+     * Obtém latitude/longitude automaticamente via Nominatim
+     * se não forem fornecidas pelo frontend.
+     */
+    private function enriquecerCoordenadas(Endereco $endereco)
+    {
+        if (!empty($endereco->latitude) || !empty($endereco->longitude)) {
+            return;
+        }
+
+        try {
+            $client = new Client(['timeout' => 5]);
+
+            $queryParams = [
+                'street' => $endereco->logradouro . ', ' . $endereco->numero,
+                'city' => $endereco->cidade,
+                'state' => $endereco->uf,
+                'country' => 'Brasil',
+                'format' => 'json',
+                'limit' => 1,
+                'accept-language' => 'pt-BR',
+            ];
+
+            if (!empty($endereco->bairro)) {
+                $queryParams['county'] = $endereco->bairro;
+            }
+            if (!empty($endereco->cep)) {
+                $queryParams['postalcode'] = preg_replace('/\D/', '', $endereco->cep);
+            }
+
+            $response = $client->get('https://nominatim.openstreetmap.org/search', [
+                'query' => $queryParams,
+                'headers' => [
+                    'User-Agent' => 'QuiPede/1.0 (contato@quipede.com.br)',
+                ],
+            ]);
+
+            $data = json_decode($response->getBody(), true);
+
+            if (!empty($data) && isset($data[0]['lat'], $data[0]['lon'])) {
+                $endereco->latitude = (float)$data[0]['lat'];
+                $endereco->longitude = (float)$data[0]['lon'];
+                Yii::info("Coordenadas obtidas para endereço {$endereco->id}: {$endereco->latitude}, {$endereco->longitude}", __METHOD__);
+            }
+        } catch (\Exception $e) {
+            Yii::warning("Não foi possível obter coordenadas: " . $e->getMessage(), __METHOD__);
         }
     }
 
