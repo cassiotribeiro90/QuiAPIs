@@ -22,6 +22,8 @@ use yii\web\IdentityInterface;
  * @property string $auth_key
  * @property string|null $access_token
  * @property string|null $access_token_expira_em
+ * @property string|null $refresh_token
+ * @property string|null $refresh_token_expira_em
  * @property string|null $reset_token
  * @property string|null $reset_token_expira_em
  * @property string|null $google_id
@@ -85,7 +87,8 @@ class Usuario extends ActiveRecord implements IdentityInterface
             
             // Datas
             [['data_nascimento', 'ultimo_login_em', 'primeiro_pedido_em', 'ultimo_pedido_em', 
-              'termos_aceitos_em', 'criado_em', 'atualizado_em', 'deletado_em'], 'safe'],
+              'termos_aceitos_em', 'criado_em', 'atualizado_em', 'deletado_em', 'access_token_expira_em', 
+              'refresh_token_expira_em', 'reset_token_expira_em'], 'safe'],
             
             // Inteiros
             [['telefone_verificado', 'login_count', 'total_pedidos', 'pontos', 'nivel', 
@@ -100,7 +103,7 @@ class Usuario extends ActiveRecord implements IdentityInterface
             [['email'], 'string', 'max' => 150],
             [['cpf'], 'string', 'max' => 11],
             [['telefone', 'whatsapp'], 'string', 'max' => 20],
-            [['senha_hash', 'access_token', 'reset_token', 'google_id', 'facebook_id', 'avatar'], 'string', 'max' => 255],
+            [['senha_hash', 'access_token', 'refresh_token', 'reset_token', 'google_id', 'facebook_id', 'avatar'], 'string', 'max' => 255],
             [['auth_key'], 'string', 'max' => 32],
             [['ultimo_login_ip'], 'string', 'max' => 45],
             [['codigo_indicacao'], 'string', 'max' => 20],
@@ -129,6 +132,8 @@ class Usuario extends ActiveRecord implements IdentityInterface
             'auth_key' => 'Auth Key',
             'access_token' => 'Access Token',
             'access_token_expira_em' => 'Access Token Expira Em',
+            'refresh_token' => 'Refresh Token',
+            'refresh_token_expira_em' => 'Refresh Token Expira Em',
             'reset_token' => 'Reset Token',
             'reset_token_expira_em' => 'Reset Token Expira Em',
             'google_id' => 'Google ID',
@@ -169,14 +174,14 @@ class Usuario extends ActiveRecord implements IdentityInterface
     }
     
     /**
-     * Aceita tokens de usuários 'ativo' E 'convidado'
+     * Aceita tokens de usuários 'ativo', 'convidado' e 'pendente'
      */
     public static function findIdentityByAccessToken($token, $type = null)
     {
         return static::find()
             ->where(['access_token' => $token])
             ->andWhere(['>', 'access_token_expira_em', date('Y-m-d H:i:s')])
-            ->andWhere(['in', 'status', [self::STATUS_ATIVO, 'convidado']])
+            ->andWhere(['in', 'status', [self::STATUS_ATIVO, 'convidado', self::STATUS_PENDENTE]])
             ->andWhere(['deletado_em' => null])
             ->one();
     }

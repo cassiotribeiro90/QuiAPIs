@@ -102,7 +102,7 @@ $config = [
         'urlManager' => [
             'enablePrettyUrl' => true,
             'showScriptName' => false,
-            'enableStrictParsing' => false,
+            'enableStrictParsing' => true,
             'rules' => [
                 // ==================== API APP (Cliente) - PÚBLICAS ====================
                 
@@ -113,18 +113,30 @@ $config = [
                 'POST api/app/auth/logout' => 'api/app/auth/logout',
                 'GET api/app/auth/me' => 'api/app/auth/me',
                 'POST api/app/auth/me' => 'api/app/auth/update-me',
+                'POST api/app/auth/phone' => 'api/app/auth/phone',
+                'POST api/app/auth/verify-otp' => 'api/app/auth/verify-otp',
+                'POST api/app/auth/social' => 'api/app/auth/social',
+                'POST api/app/auth/convidado' => 'api/app/auth/convidado',
+                'POST api/app/auth/update-telefone' => 'api/app/auth/update-telefone',
+                'POST api/app/auth/confirm-update-telefone' => 'api/app/auth/confirm-update-telefone',
 
                 // Carrinho
                 'GET api/app/carrinho' => 'api/app/carrinho/index',
                 'PUT api/app/carrinho/atualizar' => 'api/app/carrinho/atualizar',
                 'POST api/app/carrinho/limpar' => 'api/app/carrinho/limpar',
+                'POST api/app/carrinho/calcular' => 'api/app/carrinho/calcular',
+                'GET api/app/carrinho/resumo' => 'api/app/carrinho/resumo',
+                'GET api/app/carrinho/verificar-loja' => 'api/app/carrinho/verificar-loja',
 
                 // CadastroController
-                'POST cadastro/validar-etapa1' => 'cadastro/validar-etapa1',
-                'POST cadastro/cadastrar' => 'cadastro/cadastrar',
+                'POST api/app/cadastro/validar-etapa1' => 'api/app/cadastro/validar-etapa1',
+                'POST api/app/cadastro/cadastrar' => 'api/app/cadastro/cadastrar',
+                'GET api/app/cadastro/buscar-cep' => 'api/app/cadastro/buscar-cep',
 
-                // Endereco
-                'POST localizacao/confirmar-endereco' => 'localizacao/confirmar-endereco',
+                // LocalizacaoController
+                'GET api/app/localizacao/geocodificar' => 'api/app/localizacao/geocodificar',
+                'GET api/app/localizacao/buscar-endereco' => 'api/app/localizacao/buscar-endereco',
+                'POST api/app/localizacao/confirmar-endereco' => 'api/app/localizacao/confirmar-endereco',
                 
                 // Lojas - Listagem
                 'GET api/app/lojas' => 'api/app/loja/index',
@@ -157,6 +169,7 @@ $config = [
                 // Produtos gerais
                 'GET api/app/produtos' => 'api/app/produto/index',
                 'GET api/app/produtos/<id:\d+>' => 'api/app/produto/view',
+                'POST api/app/produtos' => 'api/app/produto/create',
                 
                 // Categorias gerais
                 'GET api/app/categorias' => 'api/app/categoria/index',
@@ -173,12 +186,13 @@ $config = [
                 // Auth Convidado
                 'POST api/app/auth/convidado' => 'api/app/auth/convidado',
                 
-                // Pedidos (requer autenticação)
-                'GET api/app/pedidos' => 'api/app/pedido/index',
-                'GET api/app/pedidos/<id:\d+>' => 'api/app/pedido/view',
-                'POST api/app/pedidos' => 'api/app/pedido/create',
-                'POST api/app/pedidos/<id:\d+>/cancelar' => 'api/app/pedido/cancelar',
-                'GET api/app/pedidos/status/<status:\w+>' => 'api/app/pedido/por-status',
+                // Pedidos (App) – corrigir/adicionar
+                'POST api/app/pedido/criar' => 'api/app/pedido/criar',
+                'POST api/app/pedido/calcular-frete' => 'api/app/pedido/calcular-frete',
+                'GET api/app/pedido/historico' => 'api/app/pedido/historico',
+                'GET api/app/pedido/view/<id:\d+>' => 'api/app/pedido/view',
+                'GET api/app/pedido/view' => 'api/app/pedido/view',
+                'POST api/app/pedido/cancelar' => 'api/app/pedido/cancelar',
                 
                 // Avaliações
                 'GET api/app/avaliacoes/loja/<lojaId:\d+>' => 'api/app/avaliacao/loja',
@@ -235,6 +249,27 @@ $config = [
                 'api/gestor/subcategorias/delete/<id:\d+>' => 'api/gestor/subcategoria/delete',
                 'api/gestor/subcategorias/options' => 'api/gestor/subcategoria/options',
                 'api/gestor/subcategorias/por-categoria/<id:\d+>' => 'api/gestor/subcategoria/por-categoria',
+                
+                // Lojistas (Store Usuários)
+                'api/gestor/store-usuarios' => 'api/gestor/store-usuario/index',
+                'api/gestor/store-usuarios/<id:\d+>' => 'api/gestor/store-usuario/view',
+                'api/gestor/store-usuarios/create' => 'api/gestor/store-usuario/create',
+                'api/gestor/store-usuarios/update/<id:\d+>' => 'api/gestor/store-usuario/update',
+                'api/gestor/store-usuarios/delete/<id:\d+>' => 'api/gestor/store-usuario/delete',
+                'api/gestor/store-usuarios/options' => 'api/gestor/store-usuario/options',
+                'api/gestor/store-usuarios/lojas-options' => 'api/gestor/store-usuario/lojas-options',
+
+
+                // LOJISTA APP ---------------------------------------------------------------------------
+                // 🔥 ROTAS DE AUTENTICAÇÃO DO LOJISTA
+                'POST api/lojista/auth-lojista/phone' => 'api/lojista/auth-lojista/phone',
+                'POST api/lojista/auth-lojista/verify-otp' => 'api/lojista/auth-lojista/verify-otp',
+                'POST api/lojista/auth-lojista/login' => 'api/lojista/auth-lojista/login',
+                'POST api/lojista/auth-lojista/refresh-token' => 'api/lojista/auth-lojista/refresh-token',
+                'POST api/lojista/auth-lojista/logout' => 'api/lojista/auth-lojista/logout',
+                'POST api/lojista/auth-lojista/create' => 'api/lojista/auth-lojista/create',
+                
+
             ],
         ],
     ],
