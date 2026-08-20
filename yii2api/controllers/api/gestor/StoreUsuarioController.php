@@ -5,8 +5,8 @@ namespace app\controllers\api\gestor;
 
 use Yii;
 use app\components\ApiResponse;
-use app\models\api\app\LojistaUsuario;
-use app\models\api\app\LojistaUsuarioLoja;
+use app\models\api\lojista\LojistaUsuario;
+use app\models\api\lojista\LojistaUsuarioLoja;
 use app\models\api\app\Loja;
 use app\controllers\api\gestor\ControllerBase;
 use yii\web\BadRequestHttpException;

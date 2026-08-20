@@ -30,18 +30,16 @@ class EnderecoController extends AppControllerBase
         return $behaviors;
     }
 
+    /**
+     * ✅ CORRIGIDO: Prioriza token autenticado, depois device_id (só convidado)
+     */
     private function getOrCreateUsuarioByDeviceId()
     {
         $request = Yii::$app->request;
         $deviceId = $request->post('device_id') ??
                     $request->getHeaders()->get('X-Device-Id');
 
-        if (!$deviceId) {
-            Yii::warning("Device ID não informado", __METHOD__);
-            return null;
-        }
-
-        // 1. Tenta obter usuário pelo token (autenticado)
+        // ✅ 1. SEMPRE prioriza o token autenticado
         $authHeader = $request->getHeaders()->get('Authorization');
         if ($authHeader) {
             $token = str_replace('Bearer ', '', $authHeader);
@@ -55,41 +53,49 @@ class EnderecoController extends AppControllerBase
             }
         }
 
-        // 2. Tenta por device_id
-        $usuario = Usuario::find()
-            ->where(['device_id' => $deviceId])
-            ->one();
+        // ✅ 2. Se NÃO tem token válido, tenta device_id (apenas convidado)
+        if ($deviceId) {
+            $usuario = Usuario::find()
+                ->where(['device_id' => $deviceId])
+                ->andWhere(['status' => 'convidado'])
+                ->andWhere(['deletado_em' => null])
+                ->one();
 
-        if ($usuario) {
-            return $usuario;
+            if ($usuario) {
+                return $usuario;
+            }
         }
 
-        // 3. Cria novo convidado
-        try {
-            $usuario = new Usuario();
-            $usuario->device_id = $deviceId;
-            $usuario->status = 'convidado';
-            $usuario->nome = null;
-            $usuario->email = null;
-            $usuario->auth_key = Yii::$app->security->generateRandomString(32);
-            $usuario->tipo = 'cliente';
-            $usuario->pref_tema = 'auto';
-            $usuario->senha_hash = null;
-            $usuario->cpf = null;
-            $usuario->telefone = null;
-            $usuario->whatsapp = null;
-            $usuario->data_nascimento = null;
-            $usuario->avatar = null;
-            $usuario->ultimo_login_em = date('Y-m-d H:i:s');
-            $usuario->save(false);
+        // ✅ 3. Cria novo convidado apenas se tiver device_id
+        if ($deviceId) {
+            try {
+                $usuario = new Usuario();
+                $usuario->device_id = $deviceId;
+                $usuario->status = 'convidado';
+                $usuario->nome = null;
+                $usuario->email = null;
+                $usuario->auth_key = Yii::$app->security->generateRandomString(32);
+                $usuario->tipo = 'cliente';
+                $usuario->pref_tema = 'auto';
+                $usuario->senha_hash = null;
+                $usuario->cpf = null;
+                $usuario->telefone = null;
+                $usuario->whatsapp = null;
+                $usuario->data_nascimento = null;
+                $usuario->avatar = null;
+                $usuario->ultimo_login_em = date('Y-m-d H:i:s');
+                $usuario->save(false);
 
-            Yii::info("✅ Usuário convidado criado: ID {$usuario->id}, device_id: $deviceId", __METHOD__);
-        } catch (\Exception $e) {
-            Yii::error("❌ Erro ao criar usuário convidado: " . $e->getMessage(), __METHOD__);
-            return null;
+                Yii::info("✅ Usuário convidado criado: ID {$usuario->id}, device_id: $deviceId", __METHOD__);
+                return $usuario;
+            } catch (\Exception $e) {
+                Yii::error("❌ Erro ao criar usuário convidado: " . $e->getMessage(), __METHOD__);
+                return null;
+            }
         }
 
-        return $usuario;
+        Yii::warning("Device ID não informado", __METHOD__);
+        return null;
     }
 
     private function gerarTokenParaUsuario(Usuario $usuario)
@@ -158,23 +164,43 @@ class EnderecoController extends AppControllerBase
         $debug = [];
 
         try {
-            $deviceId = $request->post('device_id') ??
-                        $request->getHeaders()->get('X-Device-Id');
-            $debug['device_id_recebido'] = $deviceId;
+            // ✅ 1. Tenta obter usuário pelo token (autenticado)
+            $authHeader = $request->getHeaders()->get('Authorization');
+            $usuario = null;
 
-            if (!$deviceId) {
-                return ApiResponse::error('Device ID não informado', 400, $debug);
+            if ($authHeader) {
+                $token = str_replace('Bearer ', '', $authHeader);
+                $usuario = Usuario::find()
+                    ->where(['access_token' => $token])
+                    ->andWhere(['>', 'access_token_expira_em', date('Y-m-d H:i:s')])
+                    ->one();
             }
 
-            $usuario = $this->getOrCreateUsuarioByDeviceId();
+            // ✅ 2. Se NÃO tem token válido, usa device_id (convidado)
             if (!$usuario) {
-                return ApiResponse::error('Falha ao criar usuário convidado', 500, $debug);
-            }
-            $debug['usuario_id'] = $usuario->id;
+                $deviceId = $request->post('device_id') ??
+                            $request->getHeaders()->get('X-Device-Id');
 
-            $token = $this->gerarTokenParaUsuario($usuario);
-            $debug['token_gerado'] = true;
-            $debug['dados_recebidos'] = $request->post();
+                if (!$deviceId) {
+                    return ApiResponse::error('Device ID não informado', 400, $debug);
+                }
+
+                $usuario = $this->getOrCreateUsuarioByDeviceId();
+            }
+
+            if (!$usuario) {
+                return ApiResponse::error('Falha ao identificar usuário', 500, $debug);
+            }
+
+            $debug['usuario_id'] = $usuario->id;
+            $debug['usuario_status'] = $usuario->status;
+
+            // ✅ Só gera token novo se for convidado
+            $token = null;
+            if ($usuario->status == 'convidado') {
+                $token = $this->gerarTokenParaUsuario($usuario);
+                $debug['token_gerado'] = true;
+            }
 
             $endereco = new Endereco();
             $endereco->usuario_id = $usuario->id;
@@ -218,7 +244,6 @@ class EnderecoController extends AppControllerBase
             $endereco->padrao = 1;
             $endereco->save(false);
 
-            // ✅ Enriquecer coordenadas se não vieram do frontend
             if (empty($endereco->latitude) || empty($endereco->longitude)) {
                 $this->enriquecerCoordenadas($endereco);
                 $endereco->save(false);
@@ -227,8 +252,7 @@ class EnderecoController extends AppControllerBase
             $debug['endereco_id'] = $endereco->id;
             $debug['endereco_salvo'] = true;
 
-            return ApiResponse::success([
-                'token' => $token,
+            $responseData = [
                 'usuario' => [
                     'id' => $usuario->id,
                     'nome' => $usuario->nome,
@@ -236,8 +260,16 @@ class EnderecoController extends AppControllerBase
                     'status' => $usuario->status,
                 ],
                 'endereco' => $this->formatEndereco($endereco),
-                'debug' => $debug,
-            ], 'Endereço criado com sucesso', 201);
+            ];
+
+            // ✅ Só inclui token se foi gerado (convidado)
+            if ($token) {
+                $responseData['token'] = $token;
+            }
+
+            $responseData['debug'] = $debug;
+
+            return ApiResponse::success($responseData, 'Endereço criado com sucesso', 201);
         } catch (\Exception $e) {
             $debug['excecao'] = $e->getMessage();
             $debug['arquivo'] = $e->getFile();
@@ -286,7 +318,6 @@ class EnderecoController extends AppControllerBase
             $endereco->ativo = 1;
             $endereco->deletado_em = null;
 
-            // ✅ Enriquecer coordenadas se necessário
             if (empty($endereco->latitude) || empty($endereco->longitude)) {
                 $this->enriquecerCoordenadas($endereco);
             }
@@ -458,10 +489,6 @@ class EnderecoController extends AppControllerBase
         }
     }
 
-    /**
-     * Obtém latitude/longitude automaticamente via Nominatim
-     * se não forem fornecidas pelo frontend.
-     */
     private function enriquecerCoordenadas(Endereco $endereco)
     {
         if (!empty($endereco->latitude) || !empty($endereco->longitude)) {

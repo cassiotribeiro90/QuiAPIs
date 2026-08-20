@@ -192,7 +192,7 @@ class LojistaUsuario extends ActiveRecord implements IdentityInterface
     {
         return $this->hasMany(\app\models\api\app\Loja::class, ['id' => 'loja_id'])
             ->via('lojistaUsuarioLojas')
-            ->where(['store_loja.status' => 1]);
+            ->where(['loja.status' => 'ativo']); // ✅ 'ativo' em vez de 1
     }
 
     /**

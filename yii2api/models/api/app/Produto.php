@@ -195,9 +195,9 @@ class Produto extends ActiveRecord
     {
         $opcoes = $this->getOpcoesDisponiveis()
             ->with('categoria')
-            ->orderBy(['atributo_categoria.ordem' => SORT_ASC, 'atributo_opcao.ordem' => SORT_ASC])
+            ->orderBy(['atributo_opcao.ordem' => SORT_ASC]) // ← removido atributo_categoria.ordem
             ->all();
-        
+
         $agrupado = [];
         foreach ($opcoes as $opcao) {
             $categoriaId = $opcao->categoria_id;
@@ -209,7 +209,7 @@ class Produto extends ActiveRecord
             }
             $agrupado[$categoriaId]['opcoes'][] = $opcao;
         }
-        
+
         return array_values($agrupado);
     }
     
@@ -364,5 +364,40 @@ class Produto extends ActiveRecord
                 }
             }
         }
+    }
+
+    /**
+     * Getter para o nome da categoria via subcategoria
+     */
+    public function getCategoriaNome()
+    {
+        return $this->subcategoria ? $this->subcategoria->categoria->nome : null;
+    }
+
+    /**
+     * Getter para o ícone da categoria via subcategoria
+     */
+    public function getCategoriaIcone()
+    {
+        return $this->subcategoria ? $this->subcategoria->categoria->icone : null;
+    }
+
+    /**
+     * Getter para a cor da categoria via subcategoria
+     */
+    public function getCategoriaCor()
+    {
+        return $this->subcategoria ? $this->subcategoria->categoria->cor : null;
+    }
+
+    /**
+     * Realiza soft delete do produto
+     * 
+     * @return bool
+     */
+    public function softDelete()
+    {
+        $this->deletado_em = date('Y-m-d H:i:s');
+        return $this->save(false);
     }
 }

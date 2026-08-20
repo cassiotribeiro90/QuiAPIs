@@ -26,7 +26,8 @@ class SubcategoriaController extends ControllerBase
             $request = Yii::$app->request;
 
             $query = Subcategoria::find()
-                ->orderBy(['ordem' => SORT_ASC, 'nome' => SORT_ASC]);
+                ->with('categoria')   // Carrega a relação categoria para obter o emoji
+                ->orderBy(['categoria_id' => SORT_ASC, 'nome' => SORT_ASC]);
 
             // Filtros
             if ($request->get('categoria_id')) {
@@ -158,6 +159,12 @@ class SubcategoriaController extends ControllerBase
             $this->popularSubcategoria($subcategoria, $dados);
 
             if ($subcategoria->save()) {
+                // Recarrega com relação para retornar dados completos
+                $subcategoria = Subcategoria::find()
+                    ->with('categoria')
+                    ->andWhere(['id' => $subcategoria->id])
+                    ->one();
+                    
                 return ApiResponse::success(
                     $this->formatarSubcategoria($subcategoria, true),
                     'Subcategoria criada com sucesso',
@@ -229,6 +236,12 @@ class SubcategoriaController extends ControllerBase
             $this->popularSubcategoria($subcategoria, $dados);
 
             if ($subcategoria->save()) {
+                // Recarrega com relação para garantir dados atualizados
+                $subcategoria = Subcategoria::find()
+                    ->with('categoria')
+                    ->andWhere(['id' => $subcategoria->id])
+                    ->one();
+                    
                 return ApiResponse::success(
                     $this->formatarSubcategoria($subcategoria, true),
                     'Subcategoria atualizada com sucesso'
@@ -267,6 +280,7 @@ class SubcategoriaController extends ControllerBase
             }
 
             $subcategorias = Subcategoria::find()
+                ->with('categoria')   // carrega relação para obter emoji
                 ->where(['categoria_id' => $id, 'ativo' => 1])
                 ->orderBy(['ordem' => SORT_ASC, 'nome' => SORT_ASC])
                 ->all();
@@ -277,6 +291,7 @@ class SubcategoriaController extends ControllerBase
                     'nome' => $sub->nome,
                     'icone' => $sub->icone,
                     'ordem' => $sub->ordem,
+                    'categoria_icone' => $sub->categoria->icone ?? null, // novo campo
                 ];
             }, $subcategorias);
 
@@ -375,11 +390,15 @@ class SubcategoriaController extends ControllerBase
     }
 
     /**
-     * Busca model pelo ID
+     * Busca model pelo ID (carregando a relação categoria)
      */
     private function findModel($id)
     {
-        $subcategoria = Subcategoria::findOne($id);
+        $subcategoria = Subcategoria::find()
+            ->with('categoria')
+            ->andWhere(['id' => $id])
+            ->one();
+            
         if (!$subcategoria) {
             throw new NotFoundHttpException('Subcategoria não encontrada');
         }
@@ -399,6 +418,8 @@ class SubcategoriaController extends ControllerBase
             'icone' => $subcategoria->icone,
             'ativo' => (bool)$subcategoria->ativo,
             'ordem' => (int)$subcategoria->ordem,
+            // Novo campo: emoji da categoria pai
+            'categoria_icone' => $subcategoria->categoria->icone ?? null,
         ];
 
         if ($detalhado) {

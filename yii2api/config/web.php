@@ -102,7 +102,7 @@ $config = [
         'urlManager' => [
             'enablePrettyUrl' => true,
             'showScriptName' => false,
-            'enableStrictParsing' => true,
+            'enableStrictParsing' => false,
             'rules' => [
                 // ==================== API APP (Cliente) - PÚBLICAS ====================
                 
@@ -206,8 +206,33 @@ $config = [
                 'POST lojista/pedido' => 'api/lojista/pedido/create',
                 'POST auth-lojista/create' => 'auth-lojista/create',
                 'POST auth-lojista/login' => 'auth-lojista/login',
-                'POST api/gestor/lojas/<id:\d+>/produtos' => 'api/gestor/loja/produtos',
-                
+
+                // ==================== ROTAS DO LOJISTA - PEDIDOS ====================
+
+                // 🔥 Listagem e detalhes
+                'GET api/lojista/pedidos' => 'api/lojista/lojista-pedido/index',
+                'GET api/lojista/pedidos/ativos' => 'api/lojista/lojista-pedido/ativos',
+                'GET api/lojista/pedidos/status-count' => 'api/lojista/lojista-pedido/status-count',
+                'GET api/lojista/pedidos/historico/<id:\d+>' => 'api/lojista/lojista-pedido/historico',
+                'GET api/lojista/pedidos/<id:\d+>' => 'api/lojista/lojista-pedido/view',
+
+                // 🔥 Ações de status
+                'POST api/lojista/pedidos/<id:\d+>/aceitar' => 'api/lojista/lojista-pedido/aceitar',
+                'POST api/lojista/pedidos/<id:\d+>/recusar' => 'api/lojista/lojista-pedido/recusar',
+                'POST api/lojista/pedidos/<id:\d+>/status' => 'api/lojista/lojista-pedido/atualizar-status',
+                'POST api/lojista/pedidos/<id:\d+>/cancelar' => 'api/lojista/lojista-pedido/cancelar',
+
+                // 🔥 OPTIONS (CORS preflight)
+                'OPTIONS api/lojista/pedidos' => 'api/lojista/lojista-pedido/options',
+                'OPTIONS api/lojista/pedidos/ativos' => 'api/lojista/lojista-pedido/options',
+                'OPTIONS api/lojista/pedidos/status-count' => 'api/lojista/lojista-pedido/options',
+                'OPTIONS api/lojista/pedidos/historico/<id:\d+>' => 'api/lojista/lojista-pedido/options',
+                'OPTIONS api/lojista/pedidos/<id:\d+>' => 'api/lojista/lojista-pedido/options',
+                'OPTIONS api/lojista/pedidos/<id:\d+>/aceitar' => 'api/lojista/lojista-pedido/options',
+                'OPTIONS api/lojista/pedidos/<id:\d+>/recusar' => 'api/lojista/lojista-pedido/options',
+                'OPTIONS api/lojista/pedidos/<id:\d+>/status' => 'api/lojista/lojista-pedido/options',
+                'OPTIONS api/lojista/pedidos/<id:\d+>/cancelar' => 'api/lojista/lojista-pedido/options',
+                            
                 // ==================== API GESTOR ====================
                 // Usuários do painel gestor
                 'api/gestor/gestor-usuarios' => 'api/gestor/gestor-usuarios/index',
@@ -221,6 +246,9 @@ $config = [
                 'api/gestor/gestor-usuarios/refresh-token' => 'api/gestor/gestor-usuarios/refresh-token',
                 'api/gestor/gestor-usuarios/check-token' => 'api/gestor/gestor-usuarios/check-token',
                 
+                'POST api/gestor/loja/produtos' => 'api/gestor/loja/produtos',
+                'GET api/gestor/produto/view' => 'api/gestor/produto/view',
+                'GET api/gestor/produto/view/<id:\d+>' => 'api/gestor/produto/view',
                 // Dashboard
                 'api/gestor/dashboard' => 'api/gestor/dashboard/index',
                 'api/gestor/dashboard/graficos' => 'api/gestor/dashboard/graficos',
@@ -270,6 +298,52 @@ $config = [
                 'POST api/lojista/auth-lojista/create' => 'api/lojista/auth-lojista/create',
                 
 
+                // ==================== ROTAS DO LOJISTA - PEDIDOS ====================
+
+                // 🔥 Listagem e detalhes
+                'GET api/lojista/lojista-pedido' => 'api/lojista/lojista-pedido/index',
+                'GET api/lojista/lojista-pedido/ativos' => 'api/lojista/lojista-pedido/ativos',
+                'GET api/lojista/lojista-pedido/status-count' => 'api/lojista/lojista-pedido/status-count',  // ← ADICIONAR ESTA
+                'GET api/lojista/lojista-pedido/historico/<id:\d+>' => 'api/lojista/lojista-pedido/historico',
+                'GET api/lojista/lojista-pedido/<id:\d+>' => 'api/lojista/lojista-pedido/view',
+
+                // 🔥 Ações de status
+                'POST api/lojista/lojista-pedido/<id:\d+>/aceitar' => 'api/lojista/lojista-pedido/aceitar',
+                'POST api/lojista/lojista-pedido/<id:\d+>/recusar' => 'api/lojista/lojista-pedido/recusar',
+                'POST api/lojista/lojista-pedido/<id:\d+>/status' => 'api/lojista/lojista-pedido/atualizar-status',
+                'POST api/lojista/lojista-pedido/<id:\d+>/cancelar' => 'api/lojista/lojista-pedido/cancelar',
+
+                // 🔥 OPTIONS (CORS preflight)
+                'OPTIONS api/lojista/lojista-pedido' => 'api/lojista/lojista-pedido/options',
+                'OPTIONS api/lojista/lojista-pedido/ativos' => 'api/lojista/lojista-pedido/options',
+                'OPTIONS api/lojista/lojista-pedido/status-count' => 'api/lojista/lojista-pedido/options',
+                'OPTIONS api/lojista/lojista-pedido/historico/<id:\d+>' => 'api/lojista/lojista-pedido/options',
+                'OPTIONS api/lojista/lojista-pedido/<id:\d+>' => 'api/lojista/lojista-pedido/options',
+                'OPTIONS api/lojista/lojista-pedido/<id:\d+>/aceitar' => 'api/lojista/lojista-pedido/options',
+                'OPTIONS api/lojista/lojista-pedido/<id:\d+>/recusar' => 'api/lojista/lojista-pedido/options',
+                'OPTIONS api/lojista/lojista-pedido/<id:\d+>/status' => 'api/lojista/lojista-pedido/options',
+                'OPTIONS api/lojista/lojista-pedido/<id:\d+>/cancelar' => 'api/lojista/lojista-pedido/options',
+
+
+                'api/lojista/cardapio' => 'api/lojista/cardapio/index',
+                'api/lojista/cardapio/<id:\d+>' => 'api/lojista/cardapio/view',
+                'api/lojista/cardapio/create' => 'api/lojista/cardapio/create',
+                'api/lojista/cardapio/update/<id:\d+>' => 'api/lojista/cardapio/update',
+                'api/lojista/cardapio/delete/<id:\d+>' => 'api/lojista/cardapio/delete',
+                'api/lojista/cardapio/toggle/<id:\d+>' => 'api/lojista/cardapio/toggle',
+                'api/lojista/cardapio/options' => 'api/lojista/cardapio/options',
+                'api/lojista/cardapio/options/<id:\d+>' => 'api/lojista/cardapio/options',
+                'api/lojista/cardapio/estoque/<id:\d+>' => 'api/lojista/cardapio/estoque', // 🆕 ajustado
+                // Rotas para categorias (lojista)
+                'api/lojista/categorias' => 'api/lojista/categoria/index',
+                'api/lojista/categorias/options' => 'api/lojista/categoria/options',
+
+                // Rotas para subcategorias (lojista)
+                'api/lojista/subcategoria/por-categoria' => 'api/lojista/subcategoria/por-categoria',
+                // Rotas para o lojista gerenciar sua loja
+                'api/lojista/loja' => 'api/lojista/loja/index',
+                'PUT api/lojista/loja' => 'api/lojista/loja/update',
+                'POST api/lojista/loja' => 'api/lojista/loja/update', // alternativa
             ],
         ],
     ],

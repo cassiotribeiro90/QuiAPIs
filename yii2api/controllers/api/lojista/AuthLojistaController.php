@@ -6,6 +6,8 @@ use Yii;
 use app\controllers\api\lojista\LojistaControllerBase;
 use app\components\ApiResponse;
 use app\models\api\lojista\LojistaUsuario;
+use app\models\api\app\Loja; 
+use yii\web\UnauthorizedHttpException;
 
 class AuthLojistaController extends LojistaControllerBase
 {
@@ -14,8 +16,6 @@ class AuthLojistaController extends LojistaControllerBase
     public function behaviors()
     {
         $behaviors = parent::behaviors();
-
-        // 🔥 Ações públicas (não precisam de autenticação)
         if (isset($behaviors['authenticator'])) {
             $behaviors['authenticator']['except'] = [
                 'options',
@@ -26,14 +26,12 @@ class AuthLojistaController extends LojistaControllerBase
                 'create',
             ];
         }
-
         return $behaviors;
     }
 
-    /**
-     * POST /api/lojista/auth/phone
-     * Envia OTP para o telefone do lojista
-     */
+    // -------------------------------------------------------------
+    // 1. Envio de OTP
+    // -------------------------------------------------------------
     public function actionPhone()
     {
         $request = Yii::$app->request;
@@ -44,21 +42,18 @@ class AuthLojistaController extends LojistaControllerBase
         }
 
         $telefone = preg_replace('/\D/', '', $telefone);
-
         if (strlen($telefone) < 10 || strlen($telefone) > 11) {
             return ApiResponse::error('Telefone inválido', 400);
         }
 
         $lojista = LojistaUsuario::find()
-            ->where(['telefone' => $telefone])
-            ->andWhere(['deletado_em' => null])
+            ->where(['telefone' => $telefone, 'deletado_em' => null])
             ->one();
 
         if (!$lojista) {
             return ApiResponse::error('Lojista não encontrado para este telefone', 404);
         }
 
-        // Gera código OTP (mock - em produção, enviar por SMS)
         $codigoOtp = rand(100000, 999999);
         $lojista->reset_token = (string)$codigoOtp;
         $lojista->reset_token_expira_em = date('Y-m-d H:i:s', time() + 300);
@@ -67,20 +62,21 @@ class AuthLojistaController extends LojistaControllerBase
         Yii::info("🔢 Código OTP para lojista {$telefone}: {$codigoOtp}", __METHOD__);
 
         return ApiResponse::success([
-            'message' => 'Código enviado com sucesso',
+            'message'  => 'Código enviado com sucesso',
             'telefone' => $telefone,
+            // Em desenvolvimento, podemos retornar o código para facilitar testes
+            'debug_code' => $codigoOtp, // <-- opcional
         ]);
     }
 
-    /**
-     * POST /api/lojista/auth/verify-otp
-     * Verifica OTP e autentica o lojista
-     */
+    // -------------------------------------------------------------
+    // 2. Verificação OTP e login (DUMB MODE - aceita qualquer código)
+    // -------------------------------------------------------------
     public function actionVerifyOtp()
     {
         $request = Yii::$app->request;
         $telefone = $request->getBodyParam('phone');
-        $codigo = $request->getBodyParam('code');
+        $codigo   = $request->getBodyParam('code');
         $deviceId = $request->getHeaders()->get('X-Device-Id');
 
         if (empty($telefone) || empty($codigo)) {
@@ -88,24 +84,26 @@ class AuthLojistaController extends LojistaControllerBase
         }
 
         $telefone = preg_replace('/\D/', '', $telefone);
-        $codigo = trim($codigo);
+        $codigo   = trim($codigo);
 
         if (strlen($codigo) !== 6 || !ctype_digit($codigo)) {
             return ApiResponse::error('Código deve ter 6 dígitos', 400);
         }
 
         $lojista = LojistaUsuario::find()
-            ->where(['telefone' => $telefone])
-            ->andWhere(['deletado_em' => null])
+            ->where(['telefone' => $telefone, 'deletado_em' => null])
             ->one();
 
         if (!$lojista) {
             return ApiResponse::error('Lojista não encontrado', 404);
         }
 
-        // 🔥 VALIDAÇÃO DUMB (desenvolvimento) - qualquer código 6 dígitos funciona
+        // 🔥 DUMB VALIDATION: qualquer código de 6 dígitos é aceito em desenvolvimento
         // TODO: Remover em produção e validar com reset_token
+        // Apenas garantimos que o código seja numérico e tenha 6 dígitos (já validado acima)
+        // Não comparamos com o reset_token nem verificamos expiração.
 
+        // Limpa o token gerado (opcional, mas mantemos para não acumular)
         $lojista->reset_token = null;
         $lojista->reset_token_expira_em = null;
 
@@ -113,39 +111,39 @@ class AuthLojistaController extends LojistaControllerBase
             $lojista->device_id = $deviceId;
         }
 
-        $accessToken = $lojista->generateAccessToken(7200);
+        $accessToken  = $lojista->generateAccessToken(7200);
         $refreshToken = $lojista->generateRefreshToken(2592000);
 
         $lojista->ultimo_login_em = date('Y-m-d H:i:s');
-        // 🔥 REMOVIDO: $lojista->login_count = ($lojista->login_count ?? 0) + 1;
         $lojista->save(false);
 
+        $lojas = $this->getLojasDoLojista($lojista->id);
+
         return ApiResponse::success([
-            'access_token' => $accessToken,
+            'access_token'  => $accessToken,
             'refresh_token' => $refreshToken,
-            'expires_in' => 7200,
-            'token_type' => 'Bearer',
-            'lojista' => $this->formatLojista($lojista),
+            'expires_in'    => 7200,
+            'token_type'    => 'Bearer',
+            'lojista'       => $this->formatLojista($lojista),
+            'lojas'         => $lojas,
         ], 'Autenticação realizada com sucesso');
     }
 
-    /**
-     * POST /api/lojista/auth/login
-     * Login com email e senha (fallback)
-     */
+    // -------------------------------------------------------------
+    // 3. Login com email/senha (fallback)
+    // -------------------------------------------------------------
     public function actionLogin()
     {
         $request = Yii::$app->request;
-        $email = $request->getBodyParam('email');
-        $senha = $request->getBodyParam('senha');
+        $email   = $request->getBodyParam('email');
+        $senha   = $request->getBodyParam('senha');
 
         if (empty($email) || empty($senha)) {
             return ApiResponse::error('Email e senha são obrigatórios', 400);
         }
 
         $lojista = LojistaUsuario::find()
-            ->where(['email' => $email])
-            ->andWhere(['deletado_em' => null])
+            ->where(['email' => $email, 'deletado_em' => null])
             ->one();
 
         if (!$lojista || !$lojista->validatePassword($senha)) {
@@ -156,31 +154,31 @@ class AuthLojistaController extends LojistaControllerBase
             return ApiResponse::error('Lojista inativo', 401);
         }
 
-        $accessToken = $lojista->generateAccessToken(7200);
+        $accessToken  = $lojista->generateAccessToken(7200);
         $refreshToken = $lojista->generateRefreshToken(2592000);
 
         $lojista->ultimo_login_em = date('Y-m-d H:i:s');
         $lojista->ultimo_login_ip = Yii::$app->request->userIP;
-        // 🔥 REMOVIDO: $lojista->login_count = ($lojista->login_count ?? 0) + 1;
         $lojista->save(false);
 
+        $lojas = $this->getLojasDoLojista($lojista->id);
+
         return ApiResponse::success([
-            'access_token' => $accessToken,
+            'access_token'  => $accessToken,
             'refresh_token' => $refreshToken,
-            'expires_in' => 7200,
-            'token_type' => 'Bearer',
-            'lojista' => $this->formatLojista($lojista),
+            'expires_in'    => 7200,
+            'token_type'    => 'Bearer',
+            'lojista'       => $this->formatLojista($lojista),
+            'lojas'         => $lojas,
         ], 'Login realizado com sucesso');
     }
 
-    /**
-     * POST /api/lojista/auth/refresh-token
-     * Renova o access token
-     */
+    // -------------------------------------------------------------
+    // 4. Refresh token
+    // -------------------------------------------------------------
     public function actionRefreshToken()
     {
         $refreshToken = Yii::$app->request->getBodyParam('refresh_token');
-
         if (empty($refreshToken)) {
             return ApiResponse::error('Refresh token é obrigatório', 400);
         }
@@ -200,19 +198,20 @@ class AuthLojistaController extends LojistaControllerBase
         }
 
         $novoAccessToken = $lojista->generateAccessToken();
+        $lojas = $this->getLojasDoLojista($lojista->id);
 
         return ApiResponse::success([
-            'access_token' => $novoAccessToken,
-            'expires_in' => 7200,
-            'token_type' => 'Bearer',
-            'lojista' => $this->formatLojista($lojista),
+            'access_token'  => $novoAccessToken,
+            'expires_in'    => 7200,
+            'token_type'    => 'Bearer',
+            'lojista'       => $this->formatLojista($lojista),
+            'lojas'         => $lojas,
         ], 'Token renovado com sucesso');
     }
 
-    /**
-     * POST /api/lojista/auth/logout
-     * Invalida os tokens do lojista
-     */
+    // -------------------------------------------------------------
+    // 5. Logout
+    // -------------------------------------------------------------
     public function actionLogout()
     {
         try {
@@ -226,42 +225,35 @@ class AuthLojistaController extends LojistaControllerBase
         return ApiResponse::success(null, 'Logout realizado com sucesso');
     }
 
-    /**
-     * POST /api/lojista/auth/create
-     * Cria um novo lojista (público)
-     */
+    // -------------------------------------------------------------
+    // 6. Criação de novo lojista (público)
+    // -------------------------------------------------------------
     public function actionCreate()
     {
         $request = Yii::$app->request;
         $data = $request->bodyParams;
 
-        // Validações básicas
         if (empty($data['nome'])) {
             return ApiResponse::error('Nome é obrigatório', 400);
         }
         if (empty($data['email'])) {
             return ApiResponse::error('E-mail é obrigatório', 400);
         }
-        if (empty($data['senha']) && empty($data['password'])) {
+        $senha = $data['senha'] ?? $data['password'] ?? '';
+        if (empty($senha)) {
             return ApiResponse::error('Senha é obrigatória', 400);
         }
 
-        $senha = $data['senha'] ?? $data['password'] ?? '';
-
-        // Verificar se e-mail já existe
         if (LojistaUsuario::find()->where(['email' => $data['email']])->exists()) {
             return ApiResponse::error('E-mail já cadastrado', 409);
         }
-
-        // Verificar se CPF já existe (se fornecido)
         if (!empty($data['cpf_cnpj']) && LojistaUsuario::find()->where(['cpf_cnpj' => $data['cpf_cnpj']])->exists()) {
             return ApiResponse::error('CPF/CNPJ já cadastrado', 409);
         }
 
-        // Criar usuário
         $usuario = new LojistaUsuario();
-        $usuario->nome = $data['nome'];
-        $usuario->email = $data['email'];
+        $usuario->nome     = $data['nome'];
+        $usuario->email    = $data['email'];
         $usuario->telefone = $data['telefone'] ?? null;
         $usuario->cpf_cnpj = $data['cpf_cnpj'] ?? null;
         $usuario->setPassword($senha);
@@ -272,13 +264,13 @@ class AuthLojistaController extends LojistaControllerBase
 
         if ($usuario->save()) {
             return ApiResponse::success([
-                'id' => $usuario->id,
-                'nome' => $usuario->nome,
-                'email' => $usuario->email,
-                'telefone' => $usuario->telefone,
-                'cpf_cnpj' => $usuario->cpf_cnpj,
-                'funcao' => $usuario->funcao,
-                'status' => $usuario->status,
+                'id'           => $usuario->id,
+                'nome'         => $usuario->nome,
+                'email'        => $usuario->email,
+                'telefone'     => $usuario->telefone,
+                'cpf_cnpj'     => $usuario->cpf_cnpj,
+                'funcao'       => $usuario->funcao,
+                'status'       => $usuario->status,
                 'access_token' => $usuario->access_token,
             ], 'Lojista criado com sucesso');
         } else {
@@ -286,20 +278,44 @@ class AuthLojistaController extends LojistaControllerBase
         }
     }
 
-    // ==================== MÉTODOS AUXILIARES ====================
+    // -------------------------------------------------------------
+    //  MÉTODOS AUXILIARES
+    // -------------------------------------------------------------
+
+    private function getLojasDoLojista($usuarioId)
+    {
+        return Loja::find()
+            ->select([
+                'loja.id', 
+                'loja.nome', 
+                'loja.logradouro', 
+                'loja.numero',
+                'loja.complemento', 
+                'loja.bairro', 
+                'loja.cidade',
+                'loja.uf AS estado',
+                'loja.cep', 
+                'loja.telefone'
+            ])
+            ->innerJoin('store_usuario_loja sul', 'sul.loja_id = loja.id')
+            ->where(['sul.usuario_id' => $usuarioId, 'sul.status' => 1])
+            ->andWhere(['loja.deletado_em' => null])
+            ->asArray()
+            ->all();
+    }
 
     private function formatLojista(LojistaUsuario $lojista)
     {
         return [
-            'id' => $lojista->id,
-            'nome' => $lojista->nome,
-            'email' => $lojista->email,
-            'telefone' => $lojista->telefone,
-            'cpf_cnpj' => $lojista->cpf_cnpj,
-            'status' => $lojista->status,
-            'funcao' => $lojista->funcao,
+            'id'            => $lojista->id,
+            'nome'          => $lojista->nome,
+            'email'         => $lojista->email,
+            'telefone'      => $lojista->telefone,
+            'cpf_cnpj'      => $lojista->cpf_cnpj,
+            'status'        => $lojista->status,
+            'funcao'        => $lojista->funcao,
             'ultimo_login_em' => $lojista->ultimo_login_em,
-            'criado_em' => $lojista->criado_em,
+            'criado_em'     => $lojista->criado_em,
         ];
     }
 
@@ -315,7 +331,7 @@ class AuthLojistaController extends LojistaControllerBase
             ->one();
 
         if (!$lojista || !$lojista->isAtivo()) {
-            throw new \yii\web\UnauthorizedHttpException('Lojista não autenticado');
+            throw new UnauthorizedHttpException('Lojista não autenticado');
         }
 
         return $lojista;

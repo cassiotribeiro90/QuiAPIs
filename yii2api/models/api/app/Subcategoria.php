@@ -5,6 +5,7 @@ namespace app\models\api\app;
 
 use Yii;
 use yii\db\ActiveRecord;
+use app\models\api\gestor\Categoria;
 
 /**
  * Class Subcategoria
@@ -55,5 +56,10 @@ class Subcategoria extends ActiveRecord
     public function getProdutos()
     {
         return $this->hasMany(Produto::class, ['subcategoria_id' => 'id']);
+    }
+
+    public function getCategoria()
+    {
+        return $this->hasOne(Categoria::class, ['id' => 'categoria_id']);
     }
 }

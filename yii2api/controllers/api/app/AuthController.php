@@ -102,7 +102,7 @@ class AuthController extends AppControllerBase
 
     /**
      * POST /api/app/auth/verify-otp
-     * Verifica código OTP (mock: qualquer código de 6 dígitos)
+     * Verifica código OTP e marca telefone como verificado
      */
     public function actionVerifyOtp()
     {
@@ -145,6 +145,9 @@ class AuthController extends AppControllerBase
 
         $usuario->reset_token = null;
         $usuario->reset_token_expira_em = null;
+
+        // ✅ NOVO: Marca telefone como verificado
+        $usuario->telefone_verificado = 1;
 
         if (empty($usuario->device_id) && $deviceId) {
             $usuario->device_id = $deviceId;
@@ -218,15 +221,7 @@ class AuthController extends AppControllerBase
 
         return ApiResponse::success([
             'token' => $token,
-            'usuario' => [
-                'id' => $usuario->id,
-                'nome' => $usuario->nome,
-                'email' => $usuario->email,
-                'cpf' => $usuario->cpf,
-                'telefone' => $usuario->telefone,
-                'status' => $usuario->status,
-                'device_id' => $usuario->device_id,
-            ],
+            'usuario' => $this->formatUsuario($usuario), // ✅ Usa formatUsuario
             'enderecos' => $this->getTodosEnderecos($usuario->id),
             'tipo' => 'convidado',
         ]);
@@ -334,6 +329,7 @@ class AuthController extends AppControllerBase
         $transaction = Yii::$app->db->beginTransaction();
         try {
             $deviceId = $request->getBodyParam('device_id');
+            $usuario = null;
             if ($deviceId) {
                 $usuario = Usuario::find()
                     ->where(['device_id' => $deviceId, 'status' => 'convidado'])
@@ -355,7 +351,7 @@ class AuthController extends AppControllerBase
                 }
             }
 
-            if (!isset($usuario)) {
+            if ($usuario === null) {
                 $usuario = new Usuario();
                 $usuario->nome = trim($dados['nome']);
                 $usuario->email = $email;
@@ -564,8 +560,78 @@ class AuthController extends AppControllerBase
         return ApiResponse::error('Erro ao atualizar perfil', 500);
     }
 
+    /**
+     * POST /api/app/auth/update-telefone
+     */
+    public function actionUpdateTelefone()
+    {
+        $request = Yii::$app->request;
+        $usuario = $this->getUserByToken();
+
+        $novoTelefone = $request->getBodyParam('telefone');
+        if (empty($novoTelefone)) {
+            return ApiResponse::error('Telefone é obrigatório', 400);
+        }
+        $novoTelefone = preg_replace('/\D/', '', $novoTelefone);
+        if (strlen($novoTelefone) < 10 || strlen($novoTelefone) > 11) {
+            return ApiResponse::error('Telefone inválido', 400);
+        }
+
+        $codigoOtp = rand(100000, 999999);
+        $usuario->reset_token = (string)$codigoOtp;
+        $usuario->reset_token_expira_em = date('Y-m-d H:i:s', time() + 300);
+        $usuario->save(false);
+
+        Yii::info("🔢 Código OTP para novo telefone $novoTelefone: $codigoOtp", __METHOD__);
+
+        return ApiResponse::success([
+            'message' => 'Código enviado com sucesso',
+            'telefone' => $novoTelefone,
+        ]);
+    }
+
+    /**
+     * POST /api/app/auth/confirm-update-telefone
+     */
+    public function actionConfirmUpdateTelefone()
+    {
+        $request = Yii::$app->request;
+        $usuario = $this->getUserByToken();
+
+        $novoTelefone = $request->getBodyParam('telefone');
+        $codigo = $request->getBodyParam('code');
+
+        if (empty($novoTelefone) || empty($codigo)) {
+            return ApiResponse::error('Telefone e código são obrigatórios', 400);
+        }
+
+        $novoTelefone = preg_replace('/\D/', '', $novoTelefone);
+        $codigo = trim($codigo);
+
+        if (strlen($codigo) !== 6 || !ctype_digit($codigo)) {
+            return ApiResponse::error('Código deve ter 6 dígitos', 400);
+        }
+
+        $usuario->telefone = $novoTelefone;
+        $usuario->telefone_verificado = 1; // ✅ NOVO
+        $usuario->reset_token = null;
+        $usuario->reset_token_expira_em = null;
+        $usuario->save(false);
+
+        $responseData = [
+            'usuario' => $this->formatUsuario($usuario),
+            'enderecos' => $this->getTodosEnderecos($usuario->id),
+            'endereco' => $this->getEnderecoPadrao($usuario->id),
+        ];
+
+        return ApiResponse::success($responseData, 'Telefone atualizado com sucesso');
+    }
+
     // ==================== MÉTODOS AUXILIARES ====================
 
+    /**
+     * ✅ Formata usuário com telefone_verificado
+     */
     private function formatUsuario(Usuario $usuario)
     {
         return [
@@ -579,6 +645,7 @@ class AuthController extends AppControllerBase
             'ultimo_login_em' => $usuario->ultimo_login_em,
             'status' => $usuario->status,
             'criado_em' => $usuario->criado_em,
+            'telefone_verificado' => (bool)$usuario->telefone_verificado, // ✅ NOVO
         ];
     }
 
@@ -790,73 +857,5 @@ class AuthController extends AppControllerBase
         } catch (\Exception $e) {
             // Silencioso
         }
-    }
-
-    /**
-     * POST /api/app/auth/update-telefone
-     * Inicia o fluxo de atualização de telefone (gera nova OTP para o novo número)
-     */
-    public function actionUpdateTelefone()
-    {
-        $request = Yii::$app->request;
-        $usuario = $this->getUserByToken();
-
-        $novoTelefone = $request->getBodyParam('telefone');
-        if (empty($novoTelefone)) {
-            return ApiResponse::error('Telefone é obrigatório', 400);
-        }
-        $novoTelefone = preg_replace('/\D/', '', $novoTelefone);
-        if (strlen($novoTelefone) < 10 || strlen($novoTelefone) > 11) {
-            return ApiResponse::error('Telefone inválido', 400);
-        }
-
-        $codigoOtp = rand(100000, 999999);
-        $usuario->reset_token = (string)$codigoOtp;
-        $usuario->reset_token_expira_em = date('Y-m-d H:i:s', time() + 300);
-        $usuario->save(false);
-
-        Yii::info("🔢 Código OTP para novo telefone $novoTelefone: $codigoOtp", __METHOD__);
-
-        return ApiResponse::success([
-            'message' => 'Código enviado com sucesso',
-            'telefone' => $novoTelefone,
-        ]);
-    }
-
-    /**
-     * POST /api/app/auth/confirm-update-telefone
-     * Valida OTP e atualiza o telefone do usuário
-     */
-    public function actionConfirmUpdateTelefone()
-    {
-        $request = Yii::$app->request;
-        $usuario = $this->getUserByToken();
-
-        $novoTelefone = $request->getBodyParam('telefone');
-        $codigo = $request->getBodyParam('code');
-
-        if (empty($novoTelefone) || empty($codigo)) {
-            return ApiResponse::error('Telefone e código são obrigatórios', 400);
-        }
-
-        $novoTelefone = preg_replace('/\D/', '', $novoTelefone);
-        $codigo = trim($codigo);
-
-        if (strlen($codigo) !== 6 || !ctype_digit($codigo)) {
-            return ApiResponse::error('Código deve ter 6 dígitos', 400);
-        }
-
-        $usuario->telefone = $novoTelefone;
-        $usuario->reset_token = null;
-        $usuario->reset_token_expira_em = null;
-        $usuario->save(false);
-
-        $responseData = [
-            'usuario' => $this->formatUsuario($usuario),
-            'enderecos' => $this->getTodosEnderecos($usuario->id),
-            'endereco' => $this->getEnderecoPadrao($usuario->id),
-        ];
-
-        return ApiResponse::success($responseData, 'Telefone atualizado com sucesso');
     }
 }

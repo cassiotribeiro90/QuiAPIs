@@ -29,10 +29,10 @@ class LojistaControllerBase extends Controller
             ],
         ];
 
-        // 🔥 AUTENTICAÇÃO VIA userLojista
+        // 🔥 AUTENTICAÇÃO VIA userLojista - CORRIGIDO
         $behaviors['authenticator'] = [
             'class' => HttpBearerAuth::class,
-            'user' => 'userLojista',  // ← Componente de autenticação do lojista
+            'user' => Yii::$app->userLojista,  // ← Passa o OBJETO, não a string
             'except' => [
                 'options',
             ],

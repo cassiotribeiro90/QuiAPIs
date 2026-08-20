@@ -18,20 +18,15 @@ class PedidoController extends AppControllerBase
 {
     /**
      * {@inheritdoc}
-     * Todos os endpoints exigem autenticação
      */
     public function behaviors()
     {
         $behaviors = parent::behaviors();
-        // Nenhuma ação pública – todas exigem token
         return $behaviors;
     }
 
     /**
      * POST /api/app/pedido/calcular-frete
-     * Calcula a taxa de entrega com base na distância entre loja e endereço
-     * 
-     * Body: { loja_id, endereco_id }
      */
     public function actionCalcularFrete()
     {
@@ -84,9 +79,6 @@ class PedidoController extends AppControllerBase
 
     /**
      * POST /api/app/pedido/criar
-     * Cria um novo pedido a partir do carrinho ativo
-     *
-     * Body: { endereco_id, forma_pagamento, troco_para?, observacao? }
      */
     public function actionCriar()
     {
@@ -127,13 +119,28 @@ class PedidoController extends AppControllerBase
                 return ApiResponse::error('Forma de pagamento é obrigatória', 400);
             }
 
-            // Valida contra as configurações da loja (se existirem)
             $loja = Loja::findOne($carrinho->loja_id);
             if (!$loja) {
                 return ApiResponse::error('Loja não encontrada', 404);
             }
 
-            $formasValidas = ['dinheiro', 'cartao_entrega']; // fallback mínimo
+            // ✅ Todas as formas de pagamento válidas
+            $formasValidas = [
+                'dinheiro',
+                'credito',
+                'debito',
+                'pix',
+                'vr',
+                'cartao_entrega',
+                'cartao_credito',
+                'cartao_debito',
+                'vale_refeicao',
+                'vale_alimentacao',
+                'transferencia',
+                'boleto',
+                'outro',
+            ];
+
             $configLoja = $loja->configuracoes;
             if (is_string($configLoja)) {
                 $configLoja = json_decode($configLoja, true);
@@ -141,6 +148,7 @@ class PedidoController extends AppControllerBase
             if (is_array($configLoja) && isset($configLoja['formas_pagamento'])) {
                 $formasValidas = array_keys($configLoja['formas_pagamento']);
             }
+
             if (!in_array($formaPagamento, $formasValidas)) {
                 return ApiResponse::error(
                     'Forma de pagamento não disponível para esta loja',
@@ -164,10 +172,19 @@ class PedidoController extends AppControllerBase
             $pedido->taxa_entrega  = $taxaEntrega;
             $pedido->total         = $carrinho->subtotal + $taxaEntrega;
             $pedido->forma_pagamento = $formaPagamento;
-            $pedido->codigo = 'PED-' . date('YmdHis') . '-' . str_pad(rand(0, 9999), 6, '0', STR_PAD_LEFT);
+
+            // ✅ Código amigável
+            $pedido->codigo = $this->gerarCodigoPedido();
+
             $pedido->status        = Pedido::STATUS_NOVO;
             $pedido->pagamento_status = Pedido::PAGAMENTO_PENDENTE;
             $pedido->observacoes   = $request->post('observacao');
+
+            // ✅ Configuração de pagamento (JSON)
+            $pagamentoConfig = $request->post('pagamento_config');
+            if (!empty($pagamentoConfig)) {
+                $pedido->pagamento_config = $pagamentoConfig;
+            }
 
             if ($formaPagamento === 'dinheiro') {
                 $pedido->troco_para = $request->post('troco_para');
@@ -202,10 +219,11 @@ class PedidoController extends AppControllerBase
 
             return ApiResponse::success([
                 'pedido_id'       => $pedido->id,
+                'codigo'          => $pedido->codigo,
                 'total'           => $pedido->total,
                 'status'          => $pedido->status,
                 'forma_pagamento' => $pedido->forma_pagamento,
-                'criado_em'       => $pedido->criado_em, // valor bruto do banco
+                'criado_em'       => $pedido->criado_em,
             ], 'Pedido criado com sucesso', 201);
 
         } catch (\Exception $e) {
@@ -215,30 +233,24 @@ class PedidoController extends AppControllerBase
         }
     }
 
-    
     /**
      * GET /api/app/pedido/historico
-     * Lista pedidos do usuário com total de itens em cada pedido
-     * 
-     * CORREÇÃO: Consulta SQL pura para evitar qualquer interferência da model
      */
     public function actionHistorico()
     {
-        // Autenticação via token
         $token = Yii::$app->request->headers->get('Authorization');
         $token = str_replace('Bearer ', '', $token);
-        
+
         $usuario = Usuario::findIdentityByAccessToken($token);
         if (!$usuario) {
             return ApiResponse::error('Usuário não autenticado', 401);
         }
         $usuarioId = $usuario->id;
-        
+
         $page = (int)Yii::$app->request->get('page', 1);
         $perPage = (int)Yii::$app->request->get('per_page', 10);
         $offset = ($page - 1) * $perPage;
 
-        // SQL para buscar pedidos com contagem de itens e logo da loja
         $sql = "
             SELECT 
                 p.id,
@@ -266,23 +278,15 @@ class PedidoController extends AppControllerBase
 
         $pedidos = $command->queryAll();
 
-        // Contagem total (simples)
         $countSql = "SELECT COUNT(*) FROM pedido WHERE usuario_id = :usuario_id";
         $total = Yii::$app->db->createCommand($countSql, [':usuario_id' => $usuarioId])->queryScalar();
 
-        // Log para depuração: mostrar os valores brutos retornados do banco
-        if (!empty($pedidos)) {
-            Yii::info("Historico - Primeiro criado_em do banco: " . $pedidos[0]['criado_em'], __METHOD__);
-            Yii::info("Historico - Último criado_em do banco: " . end($pedidos)['criado_em'], __METHOD__);
-        }
-
-        // Mapear para o formato de resposta
         $data = array_map(function($pedido) {
             return [
                 'id'                => (int)$pedido['id'],
                 'codigo'            => $pedido['codigo'],
                 'loja_nome'         => $pedido['loja_nome'],
-                'loja_logo'         => $pedido['loja_logo'], // 🔥 NOVO CAMPO
+                'loja_logo'         => $pedido['loja_logo'],
                 'total'             => (float)$pedido['total'],
                 'status'            => $pedido['status'],
                 'forma_pagamento'   => $pedido['forma_pagamento'],
@@ -304,52 +308,46 @@ class PedidoController extends AppControllerBase
 
     /**
      * GET /api/app/pedido/view?id=7
-     * Detalhes de um pedido específico
      */
     public function actionView($id = null)
     {
         if ($id === null) {
             $id = Yii::$app->request->get('pedido_id');
         }
-        
+
         $token = Yii::$app->request->headers->get('Authorization');
         $token = str_replace('Bearer ', '', $token);
-        
+
         $usuario = Usuario::findIdentityByAccessToken($token);
         if (!$usuario) {
             return ApiResponse::error('Usuário não autenticado', 401);
         }
-        $usuarioId = $usuario->id;  
+        $usuarioId = $usuario->id;
 
-        Yii::info("PedidoView - Buscando ID: " . var_export($id, true) . ", Usuário: " . $usuarioId, __METHOD__);
-        
         $pedido = Pedido::findOne($id);
-        
+
         if (!$pedido) {
-            Yii::error("PedidoView - Pedido ID $id NÃO ENCONTRADO", __METHOD__);
             return ApiResponse::error('Pedido não encontrado (ID inexistente)', 404);
         }
-        
+
         if ($pedido->usuario_id != $usuarioId) {
-            Yii::error("PedidoView - Pedido ID $id pertence ao usuário {$pedido->usuario_id}, não ao {$usuarioId}", __METHOD__);
             return ApiResponse::error('Pedido não encontrado (não pertence a este usuário)', 404);
         }
-        
+
         $itens = PedidoItem::find()
             ->where(['pedido_id' => $pedido->id])
             ->all();
-        
+
         $endereco = $pedido->endereco;
         $loja = $pedido->loja;
-        
-        // Formatar datas
+
         $formatarData = function($data) {
             if ($data instanceof \DateTime) {
                 return $data->format('Y-m-d H:i:s');
             }
             return $data;
         };
-        
+
         return ApiResponse::success([
             'id' => $pedido->id,
             'codigo' => $pedido->codigo,
@@ -403,7 +401,6 @@ class PedidoController extends AppControllerBase
 
     /**
      * POST /api/app/pedido/cancelar
-     * Cancela um pedido (apenas se ainda estiver pendente)
      */
     public function actionCancelar()
     {
@@ -432,6 +429,28 @@ class PedidoController extends AppControllerBase
     // ==================== MÉTODOS AUXILIARES ====================
 
     /**
+     * Gera código amigável: AAAAMMDD-XXX (contador diário)
+     */
+    private function gerarCodigoPedido()
+    {
+        $prefixo = date('Ymd');
+
+        $ultimoPedido = Pedido::find()
+            ->where(['like', 'codigo', $prefixo . '-%', false])
+            ->orderBy(['codigo' => SORT_DESC])
+            ->one();
+
+        if ($ultimoPedido) {
+            $partes = explode('-', $ultimoPedido->codigo);
+            $contador = intval(end($partes)) + 1;
+        } else {
+            $contador = 1;
+        }
+
+        return $prefixo . '-' . str_pad($contador, 6, '0', STR_PAD_LEFT);
+    }
+
+    /**
      * Calcula a distância entre dois pontos (Haversine)
      */
     private function calcularDistancia($lat1, $lon1, $lat2, $lon2)
@@ -440,7 +459,7 @@ class PedidoController extends AppControllerBase
             return 0;
         }
 
-        $earthRadius = 6371; // km
+        $earthRadius = 6371;
 
         $latDelta = deg2rad($lat2 - $lat1);
         $lonDelta = deg2rad($lon2 - $lon1);
