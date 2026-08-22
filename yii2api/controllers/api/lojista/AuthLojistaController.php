@@ -64,8 +64,7 @@ class AuthLojistaController extends LojistaControllerBase
         return ApiResponse::success([
             'message'  => 'Código enviado com sucesso',
             'telefone' => $telefone,
-            // Em desenvolvimento, podemos retornar o código para facilitar testes
-            'debug_code' => $codigoOtp, // <-- opcional
+            'debug_code' => $codigoOtp,
         ]);
     }
 
@@ -77,7 +76,8 @@ class AuthLojistaController extends LojistaControllerBase
         $request = Yii::$app->request;
         $telefone = $request->getBodyParam('phone');
         $codigo   = $request->getBodyParam('code');
-        $deviceId = $request->getHeaders()->get('X-Device-Id');
+        $deviceId = $request->getBodyParam('device_id'); // 🔥 VINDO DO BODY
+        $deviceToken = $request->getBodyParam('device_token');
 
         if (empty($telefone) || empty($codigo)) {
             return ApiResponse::error('Telefone e código são obrigatórios', 400);
@@ -100,15 +100,21 @@ class AuthLojistaController extends LojistaControllerBase
 
         // 🔥 DUMB VALIDATION: qualquer código de 6 dígitos é aceito em desenvolvimento
         // TODO: Remover em produção e validar com reset_token
-        // Apenas garantimos que o código seja numérico e tenha 6 dígitos (já validado acima)
-        // Não comparamos com o reset_token nem verificamos expiração.
 
-        // Limpa o token gerado (opcional, mas mantemos para não acumular)
+        // Limpa o token gerado
         $lojista->reset_token = null;
         $lojista->reset_token_expira_em = null;
 
-        if (empty($lojista->device_id) && $deviceId) {
+        // 🔥 🔥 🔥 SALVA O DEVICE_ID SE FORNECIDO
+        if (!empty($deviceId)) {
             $lojista->device_id = $deviceId;
+            Yii::info("📱 Device ID salvo para lojista {$lojista->id}: $deviceId", __METHOD__);
+        }
+
+        // 🔥 🔥 🔥 SALVA O DEVICE_TOKEN (FCM) SE FORNECIDO
+        if (!empty($deviceToken)) {
+            $lojista->device_token = $deviceToken;
+            Yii::info("📱 Device token salvo para lojista {$lojista->id}: " . substr($deviceToken, 0, 20) . '...', __METHOD__);
         }
 
         $accessToken  = $lojista->generateAccessToken(7200);
@@ -137,6 +143,8 @@ class AuthLojistaController extends LojistaControllerBase
         $request = Yii::$app->request;
         $email   = $request->getBodyParam('email');
         $senha   = $request->getBodyParam('senha');
+        $deviceId = $request->getBodyParam('device_id'); // 🔥 VINDO DO BODY
+        $deviceToken = $request->getBodyParam('device_token');
 
         if (empty($email) || empty($senha)) {
             return ApiResponse::error('Email e senha são obrigatórios', 400);
@@ -152,6 +160,18 @@ class AuthLojistaController extends LojistaControllerBase
 
         if (!$lojista->isAtivo()) {
             return ApiResponse::error('Lojista inativo', 401);
+        }
+
+        // 🔥 🔥 🔥 SALVA O DEVICE_ID SE FORNECIDO
+        if (!empty($deviceId)) {
+            $lojista->device_id = $deviceId;
+            Yii::info("📱 Device ID salvo para lojista {$lojista->id} via login: $deviceId", __METHOD__);
+        }
+
+        // 🔥 🔥 🔥 SALVA O DEVICE_TOKEN (FCM) SE FORNECIDO
+        if (!empty($deviceToken)) {
+            $lojista->device_token = $deviceToken;
+            Yii::info("📱 Device token salvo para lojista {$lojista->id} via login", __METHOD__);
         }
 
         $accessToken  = $lojista->generateAccessToken(7200);
@@ -217,6 +237,12 @@ class AuthLojistaController extends LojistaControllerBase
         try {
             $lojista = $this->getLojistaByToken();
             if ($lojista) {
+                // 🔥 REMOVE O DEVICE_TOKEN E DEVICE_ID AO FAZER LOGOUT
+                $lojista->device_token = null;
+                $lojista->device_id = null;
+                $lojista->save(false);
+                Yii::info("📱 Device ID e token removidos para lojista {$lojista->id} (logout)", __METHOD__);
+                
                 $lojista->invalidateTokens();
             }
         } catch (\Exception $e) {
@@ -316,6 +342,8 @@ class AuthLojistaController extends LojistaControllerBase
             'funcao'        => $lojista->funcao,
             'ultimo_login_em' => $lojista->ultimo_login_em,
             'criado_em'     => $lojista->criado_em,
+            'device_id'     => $lojista->device_id,
+            'device_token'  => $lojista->device_token,
         ];
     }
 

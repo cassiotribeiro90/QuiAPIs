@@ -15,94 +15,86 @@ class GestorUsuariosController extends ControllerBase
     /**
      * GET /api/gestor/gestor-usuarios
      * Lista todos os gestores com paginação
-     */  
+     */
     public function actionIndex()
-{
-    try {
-        $usuarioLogado = $this->getUserByToken();
-        
-        // Se não for admin, retorna apenas seus próprios dados
-        if ($usuarioLogado->nivel !== 'admin') {
-            return $this->actionMe();
-        }
-        
-        $request = Yii::$app->request;
-        
-        // Query base - exclui deletados
-        $query = GestorUsuario::find()
-            ->where(['deletado_em' => null])
-            ->orderBy(['criado_em' => SORT_DESC]);
-        
-        // ===== FILTRO POR NÍVEL (MÚLTIPLOS VALORES) =====
-        if ($request->get('nivel')) {
-            $niveis = explode(',', $request->get('nivel'));
-            // Remove espaços em branco
-            $niveis = array_map('trim', $niveis);
-            // Filtra valores vazios
-            $niveis = array_filter($niveis);
+    {
+        try {
+            $usuarioLogado = $this->getUserByToken();
             
-            if (!empty($niveis)) {
-                $query->andWhere(['in', 'nivel', $niveis]);
+            if ($usuarioLogado->nivel !== 'admin') {
+                return $this->actionMe();
             }
-        }
-        
-        // ===== FILTRO POR STATUS (MÚLTIPLOS VALORES) =====
-        if ($request->get('status') !== null) {
-            $statusList = explode(',', $request->get('status'));
-            // Converte para inteiros
-            $statusList = array_map('intval', $statusList);
-            // Filtra valores válidos (0, 1, 2)
-            $statusList = array_filter($statusList, function($value) {
-                return in_array($value, [0, 1, 2]);
-            });
             
-            if (!empty($statusList)) {
-                $query->andWhere(['in', 'status', $statusList]);
+            $request = Yii::$app->request;
+            
+            $query = GestorUsuario::find()
+                ->where(['deletado_em' => null])
+                ->orderBy(['criado_em' => SORT_DESC]);
+            
+            // Filtro por nível
+            if ($request->get('nivel')) {
+                $niveis = explode(',', $request->get('nivel'));
+                $niveis = array_map('trim', $niveis);
+                $niveis = array_filter($niveis);
+                
+                if (!empty($niveis)) {
+                    $query->andWhere(['in', 'nivel', $niveis]);
+                }
             }
+            
+            // Filtro por status
+            if ($request->get('status') !== null) {
+                $statusList = explode(',', $request->get('status'));
+                $statusList = array_map('intval', $statusList);
+                $statusList = array_filter($statusList, function($value) {
+                    return in_array($value, [0, 1, 2]);
+                });
+                
+                if (!empty($statusList)) {
+                    $query->andWhere(['in', 'status', $statusList]);
+                }
+            }
+            
+            // Filtro por busca
+            if ($request->get('search')) {
+                $search = $request->get('search');
+                $query->andWhere([
+                    'or',
+                    ['like', 'nome', $search],
+                    ['like', 'email', $search],
+                    ['like', 'cpf', $search],
+                ]);
+            }
+            
+            $page = (int)$request->get('page', 1);
+            $perPage = (int)$request->get('per_page', 20);
+            $offset = ($page - 1) * $perPage;
+            
+            $total = $query->count();
+            $gestores = $query->offset($offset)->limit($perPage)->all();
+            
+            $data = array_map(function($gestor) {
+                return $this->formatarGestor($gestor, false);
+            }, $gestores);
+            
+            return ApiResponse::success([
+                'items' => $data,
+                'pagination' => [
+                    'total' => (int)$total,
+                    'page' => $page,
+                    'per_page' => $perPage,
+                    'total_pages' => ceil($total / $perPage)
+                ]
+            ], 'Lista de gestores recuperada com sucesso');
+            
+        } catch (\Exception $e) {
+            return ApiResponse::error(
+                $e->getMessage(),
+                $e->statusCode ?? 500,
+                'internal_error'
+            );
         }
-        
-        // ===== FILTRO POR BUSCA (TEXTO) =====
-        if ($request->get('search')) {
-            $search = $request->get('search');
-            $query->andWhere([
-                'or',
-                ['like', 'nome', $search],
-                ['like', 'email', $search],
-                ['like', 'cpf', $search],
-            ]);
-        }
-        
-        // Paginação
-        $page = (int)$request->get('page', 1);
-        $perPage = (int)$request->get('per_page', 20);
-        $offset = ($page - 1) * $perPage;
-        
-        $total = $query->count();
-        $gestores = $query->offset($offset)->limit($perPage)->all();
-        
-        // Formata dados
-        $data = array_map(function($gestor) {
-            return $this->formatarGestor($gestor, false);
-        }, $gestores);
-        
-        return ApiResponse::success([
-            'items' => $data,
-            'pagination' => [
-                'total' => (int)$total,
-                'page' => $page,
-                'per_page' => $perPage,
-                'total_pages' => ceil($total / $perPage)
-            ]
-        ], 'Lista de gestores recuperada com sucesso');
-        
-    } catch (\Exception $e) {
-        return ApiResponse::error(
-            $e->getMessage(),
-            $e->statusCode ?? 500,
-            $e instanceof \yii\web\UnauthorizedHttpException ? 'unauthorized' : 'internal_error'
-        );
     }
-}
 
     /**
      * GET /api/gestor/gestor-usuarios/<id>
@@ -114,7 +106,6 @@ class GestorUsuariosController extends ControllerBase
             $usuarioLogado = $this->getUserByToken();
             $gestor = $this->findModel($id);
             
-            // Verifica permissão
             if ($usuarioLogado->nivel !== 'admin' && $usuarioLogado->id != $id) {
                 return ApiResponse::error(
                     'Você não tem permissão para visualizar este usuário',
@@ -139,7 +130,7 @@ class GestorUsuariosController extends ControllerBase
 
     /**
      * POST /api/gestor/gestor-usuarios/login
-     * Login do gestor
+     * Login do gestor com device_id e device_token
      */
     public function actionLogin()
     {
@@ -147,6 +138,8 @@ class GestorUsuariosController extends ControllerBase
             $request = Yii::$app->request;
             $email = $request->post('email');
             $senha = $request->post('senha');
+            $deviceId = $request->post('device_id');
+            $deviceToken = $request->post('device_token');
             
             if (empty($email) || empty($senha)) {
                 return ApiResponse::error(
@@ -159,7 +152,6 @@ class GestorUsuariosController extends ControllerBase
             $gestor = GestorUsuario::findByEmail($email);
             
             if (!$gestor || !$gestor->validatePassword($senha)) {
-                // Delay para evitar timing attack
                 sleep(1);
                 return ApiResponse::error(
                     'Email ou senha inválidos',
@@ -175,14 +167,30 @@ class GestorUsuariosController extends ControllerBase
                     'inactive_user'
                 );
             }
-            
-            // Atualiza último login
+
+            // 🔥 ATUALIZA DEVICE_ID E DEVICE_TOKEN
+            if (!empty($deviceId)) {
+                $gestor->device_id = $deviceId;
+            }
+            if (!empty($deviceToken)) {
+                $gestor->device_token = $deviceToken;
+            }
+
+            // 🔥 ATUALIZA METADADOS DO LOGIN
             $gestor->ultimo_login_em = date('Y-m-d H:i:s');
             $gestor->ultimo_login_ip = $request->userIP;
-            $gestor->save(false);
-            
-            // Gera tokens
-            /** @var GestorUsuario $gestor */
+
+            // 🔥 SALVA (COM VERIFICAÇÃO DE ERRO)
+            if (!$gestor->save()) {
+                Yii::error('[LOGIN] Erro ao salvar gestor: ' . json_encode($gestor->errors), __METHOD__);
+                return ApiResponse::error(
+                    'Erro ao salvar dados do usuário',
+                    500,
+                    'save_error'
+                );
+            }
+
+            // 🔥 GERA TOKENS
             $accessToken = $gestor->generateAccessToken();
             $refreshToken = $gestor->generateRefreshToken();
             
@@ -194,10 +202,13 @@ class GestorUsuariosController extends ControllerBase
                 'access_token' => $accessToken,
                 'refresh_token' => $refreshToken,
                 'expires_in' => 7200,
-                'token_type' => 'Bearer'
+                'token_type' => 'Bearer',
+                'device_id' => $gestor->device_id,
+                'device_token' => $gestor->device_token,
             ], 'Login realizado com sucesso');
             
         } catch (\Exception $e) {
+            Yii::error('[LOGIN] Exceção: ' . $e->getMessage() . ' em ' . $e->getFile() . ':' . $e->getLine(), __METHOD__);
             return ApiResponse::error(
                 'Erro no login',
                 500,
@@ -209,14 +220,21 @@ class GestorUsuariosController extends ControllerBase
     /**
      * POST /api/gestor/gestor-usuarios/logout
      * Logout do gestor
+     * $gestor @GestorUsuario
      */
     public function actionLogout()
     {
         try {
-            /** @var GestorUsuario $gestor */
+            /** @var GestorUsuario|null $gestor */
             $gestor = $this->getUserByToken();
             
             if ($gestor) {
+                // 🔥 REMOVE DEVICE_TOKEN E DEVICE_ID AO LOGOUT
+                $gestor->device_token = null;
+                $gestor->device_id = null;
+                $gestor->save(false);
+                Yii::info("[GESTOR] Device ID e token removidos (logout)", __METHOD__);
+                
                 $gestor->invalidateTokens();
             }
             
@@ -261,14 +279,11 @@ class GestorUsuariosController extends ControllerBase
     public function actionCreate()
     {
         try {
-            // Verifica se é admin (descomente se necessário)
-            // $this->verificarAdmin();
             $this->getUserByToken();
     
             $request = Yii::$app->request;
             $dados = $request->post();
             
-            // Valida campos obrigatórios
             $erros = [];
             if (empty($dados['nome'])) $erros['nome'][] = 'Nome é obrigatório';
             if (empty($dados['email'])) $erros['email'][] = 'Email é obrigatório';
@@ -283,7 +298,6 @@ class GestorUsuariosController extends ControllerBase
                 );
             }
             
-            // Valida email
             if (!filter_var($dados['email'], FILTER_VALIDATE_EMAIL)) {
                 return ApiResponse::error(
                     'Email inválido',
@@ -293,7 +307,6 @@ class GestorUsuariosController extends ControllerBase
                 );
             }
             
-            // Valida senha
             if (strlen($dados['senha']) < 6) {
                 return ApiResponse::error(
                     'Senha deve ter no mínimo 6 caracteres',
@@ -303,7 +316,6 @@ class GestorUsuariosController extends ControllerBase
                 );
             }
             
-            // Verifica duplicidade de email
             if (GestorUsuario::find()->where(['email' => $dados['email']])->exists()) {
                 return ApiResponse::error(
                     'Email já cadastrado',
@@ -313,7 +325,6 @@ class GestorUsuariosController extends ControllerBase
                 );
             }
             
-            // Verifica duplicidade de CPF
             if (!empty($dados['cpf'])) {
                 $cpf = preg_replace('/[^0-9]/', '', $dados['cpf']);
                 if (GestorUsuario::find()->where(['cpf' => $cpf])->exists()) {
@@ -327,7 +338,6 @@ class GestorUsuariosController extends ControllerBase
                 $dados['cpf'] = $cpf;
             }
             
-            // Cria gestor
             $gestor = new GestorUsuario();
             $this->popularGestor($gestor, $dados);
             $gestor->setPassword($dados['senha']);
@@ -338,10 +348,7 @@ class GestorUsuariosController extends ControllerBase
                 $token = $gestor->generateAccessToken();
                 
                 return ApiResponse::success(
-                    array_merge(
-                        $this->formatarGestor($gestor, true),
-                        // ['access_token' => $token]
-                    ),
+                    $this->formatarGestor($gestor, true),
                     'Gestor cadastrado com sucesso',
                     201
                 );
@@ -365,14 +372,12 @@ class GestorUsuariosController extends ControllerBase
 
     /**
      * DELETE /api/gestor/gestor-usuarios/delete/<id>
-     * Remove (soft delete) um gestor
      */
     public function actionDelete($id)
     {
         try {
             $usuarioLogado = $this->getUserByToken();
             
-            // Apenas admin pode deletar
             if ($usuarioLogado->nivel !== 'admin') {
                 return ApiResponse::error(
                     'Apenas administradores podem remover usuários',
@@ -381,7 +386,6 @@ class GestorUsuariosController extends ControllerBase
                 );
             }
             
-            // Não permite deletar a si mesmo
             if ($usuarioLogado->id == $id) {
                 return ApiResponse::error(
                     'Você não pode remover seu próprio usuário',
@@ -392,10 +396,11 @@ class GestorUsuariosController extends ControllerBase
             
             $gestor = $this->findModel($id);
             
-            // Soft delete
             $gestor->deletado_em = date('Y-m-d H:i:s');
             $gestor->status = GestorUsuario::STATUS_INATIVO;
-            $gestor->invalidateTokens(); // Invalida tokens do usuário deletado
+            $gestor->device_token = null;
+            $gestor->device_id = null;
+            $gestor->invalidateTokens();
             
             if ($gestor->save(false)) {
                 return ApiResponse::success(
@@ -421,7 +426,6 @@ class GestorUsuariosController extends ControllerBase
 
     /**
      * PUT /api/gestor/gestor-usuarios/update/<id>
-     * Atualiza um gestor
      */
     public function actionUpdate($id)
     {
@@ -429,7 +433,6 @@ class GestorUsuariosController extends ControllerBase
             $usuarioLogado = $this->getUserByToken();
             $gestor = $this->findModel($id);
             
-            // Verifica permissão
             if ($usuarioLogado->nivel !== 'admin' && $usuarioLogado->id != $id) {
                 return ApiResponse::error(
                     'Você não tem permissão para atualizar este usuário',
@@ -441,7 +444,6 @@ class GestorUsuariosController extends ControllerBase
             $request = Yii::$app->request;
             $dados = $request->post();
             
-            // Valida email se foi alterado
             if (!empty($dados['email']) && $dados['email'] !== $gestor->email) {
                 if (!filter_var($dados['email'], FILTER_VALIDATE_EMAIL)) {
                     return ApiResponse::error(
@@ -462,7 +464,6 @@ class GestorUsuariosController extends ControllerBase
                 }
             }
             
-            // Valida CPF se foi alterado
             if (!empty($dados['cpf'])) {
                 $cpf = preg_replace('/[^0-9]/', '', $dados['cpf']);
                 if (GestorUsuario::find()->where(['cpf' => $cpf])->andWhere(['!=', 'id', $id])->exists()) {
@@ -476,10 +477,8 @@ class GestorUsuariosController extends ControllerBase
                 $dados['cpf'] = $cpf;
             }
             
-            // Atualiza dados
             $this->popularGestor($gestor, $dados);
             
-            // Atualiza senha se fornecida
             if (!empty($dados['senha'])) {
                 if (strlen($dados['senha']) < 6) {
                     return ApiResponse::error(
@@ -515,11 +514,8 @@ class GestorUsuariosController extends ControllerBase
         }
     }
 
-    
-
     /**
      * POST /api/gestor/gestor-usuarios/refresh-token
-     * Renova o access token usando refresh token
      */
     public function actionRefreshToken()
     {
@@ -553,10 +549,8 @@ class GestorUsuariosController extends ControllerBase
                 );
             }
             
-            // Gera novo access token
             $novoAccessToken = $gestor->generateAccessToken();
             
-            // Opcional: renovar refresh token (rotação)
             $renovarRefresh = $request->post('renovar_refresh', false);
             $novoRefreshToken = $renovarRefresh ? $gestor->generateRefreshToken() : $refreshToken;
             
@@ -578,7 +572,6 @@ class GestorUsuariosController extends ControllerBase
 
     /**
      * GET /api/gestor/gestor-usuarios/check-token
-     * Verifica se o token é válido
      */
     public function actionCheckToken()
     {
@@ -600,7 +593,6 @@ class GestorUsuariosController extends ControllerBase
 
     /**
      * GET /api/gestor/gestor-usuarios/options
-     * Retorna opções para selects (níveis, status)
      */
     public function actionOptions()
     {
@@ -630,11 +622,76 @@ class GestorUsuariosController extends ControllerBase
         }
     }
 
+    /**
+     * POST /api/gestor/gestor-usuarios/device-token
+     * Salva o device_id e device_token do gestor
+     */
+    public function actionDeviceToken()
+    {
+        try {
+            $request = Yii::$app->request;
+            $deviceToken = $request->post('device_token');
+            $deviceId = $request->post('device_id');
 
+            if (empty($deviceToken) && empty($deviceId)) {
+                return ApiResponse::error('device_token ou device_id é obrigatório', 400);
+            }
+            /** @var GestorUsuario|null $gestor */
+            $gestor = $this->getUserByToken();
+            if (!$gestor) {
+                return ApiResponse::error('Gestor não autenticado', 401);
+            }
+
+            if (!empty($deviceId)) {
+                $gestor->device_id = $deviceId;
+            }
+
+            if (!empty($deviceToken)) {
+                $gestor->device_token = $deviceToken;
+            }
+
+            $gestor->save(false);
+
+            return ApiResponse::success([
+                'message' => 'Dados do dispositivo salvos com sucesso',
+                'device_id' => $gestor->device_id,
+                'device_token' => $gestor->device_token,
+            ]);
+
+        } catch (\Exception $e) {
+            return ApiResponse::error($e->getMessage(), 500);
+        }
+    }
 
     /**
-     * Busca model pelo ID
+     * DELETE /api/gestor/gestor-usuarios/device-token
+     * Remove o device token (logout)
      */
+    public function actionDeleteDeviceToken()
+    {
+        try {
+            /** @var GestorUsuario|null $gestor */
+            $gestor = $this->getUserByToken();
+            if (!$gestor) {
+                return ApiResponse::error('Gestor não autenticado', 401);
+            }
+
+            $gestor->device_token = null;
+            $gestor->device_id = null;
+            $gestor->save(false);
+
+            return ApiResponse::success([
+                'message' => 'Dados do dispositivo removidos com sucesso',
+            ]);
+
+        } catch (\Exception $e) {
+            return ApiResponse::error($e->getMessage(), 500);
+        }
+    }
+
+    // ==================== MÉTODOS AUXILIARES ====================
+
+    /** @var GestorUsuario|null $gestor */
     private function findModel($id)
     {
         $gestor = GestorUsuario::find()
@@ -649,9 +706,6 @@ class GestorUsuariosController extends ControllerBase
         return $gestor;
     }
 
-    /**
-     * Formata dados do gestor para resposta
-     */
     private function formatarGestor($gestor, $detalhado = false)
     {
         $dados = [
@@ -662,6 +716,8 @@ class GestorUsuariosController extends ControllerBase
             'status' => (int)$gestor->status,
             'status_label' => $this->getStatusLabel($gestor->status),
             'criado_em' => $gestor->criado_em,
+            'device_id' => $gestor->device_id,
+            'device_token' => $gestor->device_token,
         ];
         
         if ($detalhado) {
@@ -677,9 +733,6 @@ class GestorUsuariosController extends ControllerBase
         return $dados;
     }
 
-    /**
-     * Retorna label do status
-     */
     private function getStatusLabel($status)
     {
         $labels = [
@@ -691,9 +744,6 @@ class GestorUsuariosController extends ControllerBase
         return $labels[$status] ?? 'Desconhecido';
     }
 
-    /**
-     * Popula dados do gestor
-     */
     private function popularGestor($gestor, $dados)
     {
         $camposPermitidos = ['nome', 'email', 'cpf', 'telefone', 'nivel', 'status'];
@@ -703,19 +753,5 @@ class GestorUsuariosController extends ControllerBase
                 $gestor->$campo = $dados[$campo];
             }
         }
-    }
-
-    /**
-     * Verifica se usuário é admin
-     */
-    private function verificarAdmin()
-    {
-        $gestor = $this->getUserByToken();
-        
-        if ($gestor->nivel !== 'admin') {
-            throw new \yii\web\ForbiddenHttpException('Acesso negado. Apenas administradores podem executar esta ação.');
-        }
-        
-        return true;
     }
 }

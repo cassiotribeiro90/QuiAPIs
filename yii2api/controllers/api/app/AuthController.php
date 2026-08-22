@@ -103,13 +103,15 @@ class AuthController extends AppControllerBase
     /**
      * POST /api/app/auth/verify-otp
      * Verifica código OTP e marca telefone como verificado
+     * 🔥 VALIDAÇÃO DUMB: aceita qualquer código de 6 dígitos (desenvolvimento)
      */
     public function actionVerifyOtp()
     {
         $request = Yii::$app->request;
         $telefone = $request->getBodyParam('phone');
         $codigo = $request->getBodyParam('code');
-        $deviceId = $request->getHeaders()->get('X-Device-Id');
+        $deviceId = $request->getBodyParam('device_id') ?? $request->getHeaders()->get('X-Device-Id');
+        $deviceToken = $request->getBodyParam('device_token');
 
         if (empty($telefone) || empty($codigo)) {
             return ApiResponse::error('Telefone e código são obrigatórios', 400);
@@ -117,6 +119,11 @@ class AuthController extends AppControllerBase
 
         $telefone = preg_replace('/\D/', '', $telefone);
         $codigo = trim($codigo);
+
+        // 🔥 VALIDAÇÃO BÁSICA: apenas formato de 6 dígitos
+        if (strlen($codigo) !== 6 || !ctype_digit($codigo)) {
+            return ApiResponse::error('Código deve ter 6 dígitos', 400);
+        }
 
         $usuario = Usuario::find()
             ->where(['telefone' => $telefone])
@@ -139,18 +146,27 @@ class AuthController extends AppControllerBase
             return ApiResponse::error('Usuário não encontrado', 404);
         }
 
-        if (strlen($codigo) !== 6 || !ctype_digit($codigo)) {
-            return ApiResponse::error('Código deve ter 6 dígitos', 400);
-        }
+        // 🔥 🔥 🔥 VALIDAÇÃO DUMB: QUALQUER CÓDIGO DE 6 DÍGITOS É ACEITO
+        // TODO: Remover em produção e validar com reset_token
+        // Não comparamos com o reset_token nem verificamos expiração.
 
+        // Limpa o token gerado (opcional, mantemos para não acumular)
         $usuario->reset_token = null;
         $usuario->reset_token_expira_em = null;
 
-        // ✅ NOVO: Marca telefone como verificado
+        // ✅ Marca telefone como verificado
         $usuario->telefone_verificado = 1;
 
-        if (empty($usuario->device_id) && $deviceId) {
+        // 🔥 SALVA DEVICE_ID
+        if (!empty($deviceId)) {
             $usuario->device_id = $deviceId;
+            Yii::info("[AUTH] Device ID salvo: $deviceId", __METHOD__);
+        }
+
+        // 🔥 SALVA DEVICE_TOKEN (FCM)
+        if (!empty($deviceToken)) {
+            $usuario->device_token = $deviceToken;
+            Yii::info("[AUTH] Device token salvo para " . substr($deviceToken, 0, 20) . '...', __METHOD__);
         }
 
         if ($usuario->status == 'convidado') {
@@ -177,6 +193,8 @@ class AuthController extends AppControllerBase
             'enderecos' => $this->getTodosEnderecos($usuario->id),
             'endereco' => $this->getEnderecoPadrao($usuario->id),
             'nome_preenchido' => !empty($usuario->nome),
+            'device_id' => $usuario->device_id,
+            'device_token' => $usuario->device_token,
         ], 'Autenticação realizada com sucesso');
     }
 
@@ -221,9 +239,10 @@ class AuthController extends AppControllerBase
 
         return ApiResponse::success([
             'token' => $token,
-            'usuario' => $this->formatUsuario($usuario), // ✅ Usa formatUsuario
+            'usuario' => $this->formatUsuario($usuario),
             'enderecos' => $this->getTodosEnderecos($usuario->id),
             'tipo' => 'convidado',
+            'device_id' => $usuario->device_id,
         ]);
     }
 
@@ -235,6 +254,8 @@ class AuthController extends AppControllerBase
         $request = Yii::$app->request;
         $email = $request->getBodyParam('email');
         $senha = $request->getBodyParam('senha');
+        $deviceId = $request->getBodyParam('device_id');
+        $deviceToken = $request->getBodyParam('device_token');
 
         if (empty($email) || empty($senha)) {
             return ApiResponse::error('Email e senha são obrigatórios', 400);
@@ -249,6 +270,18 @@ class AuthController extends AppControllerBase
 
         if (!$usuario->isAtivo()) {
             return ApiResponse::error('Usuário inativo', 401);
+        }
+
+        // 🔥 SALVA DEVICE_ID
+        if (!empty($deviceId)) {
+            $usuario->device_id = $deviceId;
+            Yii::info("[AUTH] Device ID salvo via login: $deviceId", __METHOD__);
+        }
+
+        // 🔥 SALVA DEVICE_TOKEN (FCM)
+        if (!empty($deviceToken)) {
+            $usuario->device_token = $deviceToken;
+            Yii::info("[AUTH] Device token salvo via login", __METHOD__);
         }
 
         $this->updateLoginMetadata($usuario, 'email');
@@ -418,6 +451,8 @@ class AuthController extends AppControllerBase
         $request = Yii::$app->request;
         $provider = $request->getBodyParam('provider');
         $token = $request->getBodyParam('token');
+        $deviceId = $request->getBodyParam('device_id');
+        $deviceToken = $request->getBodyParam('device_token');
         $additionalData = $request->getBodyParam('additionalData', []);
 
         if (empty($provider) || empty($token)) {
@@ -431,6 +466,19 @@ class AuthController extends AppControllerBase
         try {
             $socialUser = $this->validateSocialToken($provider, $token, $additionalData);
             $usuario = $this->findOrCreateSocialUser($provider, $socialUser);
+
+            // 🔥 SALVA DEVICE_ID
+            if (!empty($deviceId)) {
+                $usuario->device_id = $deviceId;
+                Yii::info("[AUTH] Device ID salvo via social login", __METHOD__);
+            }
+
+            // 🔥 SALVA DEVICE_TOKEN (FCM)
+            if (!empty($deviceToken)) {
+                $usuario->device_token = $deviceToken;
+                Yii::info("[AUTH] Device token salvo via social login", __METHOD__);
+            }
+
             $this->updateLoginMetadata($usuario, $provider);
 
             return ApiResponse::success(
@@ -483,7 +531,15 @@ class AuthController extends AppControllerBase
     {
         try {
             $usuario = $this->getUserByToken();
-            $usuario->invalidateTokens();
+            if ($usuario) {
+                // 🔥 REMOVE DEVICE_TOKEN E DEVICE_ID AO LOGOUT
+                $usuario->device_token = null;
+                $usuario->device_id = null;
+                $usuario->save(false);
+                Yii::info("[AUTH] Device ID e token removidos (logout)", __METHOD__);
+
+                $usuario->invalidateTokens();
+            }
         } catch (\Exception $e) {
             Yii::info("Logout com token inválido/ausente", __METHOD__);
         }
@@ -613,7 +669,7 @@ class AuthController extends AppControllerBase
         }
 
         $usuario->telefone = $novoTelefone;
-        $usuario->telefone_verificado = 1; // ✅ NOVO
+        $usuario->telefone_verificado = 1;
         $usuario->reset_token = null;
         $usuario->reset_token_expira_em = null;
         $usuario->save(false);
@@ -630,7 +686,7 @@ class AuthController extends AppControllerBase
     // ==================== MÉTODOS AUXILIARES ====================
 
     /**
-     * ✅ Formata usuário com telefone_verificado
+     * ✅ Formata usuário com telefone_verificado e device info
      */
     private function formatUsuario(Usuario $usuario)
     {
@@ -645,7 +701,9 @@ class AuthController extends AppControllerBase
             'ultimo_login_em' => $usuario->ultimo_login_em,
             'status' => $usuario->status,
             'criado_em' => $usuario->criado_em,
-            'telefone_verificado' => (bool)$usuario->telefone_verificado, // ✅ NOVO
+            'telefone_verificado' => (bool)$usuario->telefone_verificado,
+            'device_id' => $usuario->device_id,
+            'device_token' => $usuario->device_token,
         ];
     }
 

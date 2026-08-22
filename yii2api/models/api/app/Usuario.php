@@ -53,6 +53,8 @@ use yii\web\IdentityInterface;
  * @property string $criado_em
  * @property string $atualizado_em
  * @property string|null $deletado_em
+ * @property string|null $device_id
+ * @property string|null $device_token
  */
 class Usuario extends ActiveRecord implements IdentityInterface
 {
@@ -107,11 +109,15 @@ class Usuario extends ActiveRecord implements IdentityInterface
             [['auth_key'], 'string', 'max' => 32],
             [['ultimo_login_ip'], 'string', 'max' => 45],
             [['codigo_indicacao'], 'string', 'max' => 20],
+            [['device_id', 'device_token'], 'string', 'max' => 255],
             
             // Enums
             [['tipo', 'status', 'pref_tema'], 'string'],
             ['tipo', 'in', 'range' => [self::TIPO_CLIENTE, self::TIPO_ADMIN]],
             ['status', 'in', 'range' => [self::STATUS_ATIVO, self::STATUS_INATIVO, self::STATUS_BLOQUEADO, self::STATUS_PENDENTE]],
+            
+            // Safe (permitir mass assignment)
+            [['device_id', 'device_token'], 'safe'],
         ];
     }
 
@@ -163,6 +169,8 @@ class Usuario extends ActiveRecord implements IdentityInterface
             'criado_em' => 'Criado em',
             'atualizado_em' => 'Atualizado em',
             'deletado_em' => 'Deletado em',
+            'device_id' => 'ID do Dispositivo',
+            'device_token' => 'Token do Dispositivo (FCM)',
         ];
     }
 
@@ -385,5 +393,47 @@ class Usuario extends ActiveRecord implements IdentityInterface
             5 => 'Diamante',
         ];
         return $niveis[$this->nivel] ?? 'Bronze';
+    }
+
+    // ==================== MÉTODOS PARA DEVICE TOKEN ====================
+
+    /**
+     * Atualiza o device token do cliente
+     * 
+     * @param string|null $token
+     * @param string|null $deviceId
+     * @return bool
+     */
+    public function updateDevice($token = null, $deviceId = null)
+    {
+        if ($token !== null) {
+            $this->device_token = $token;
+        }
+        if ($deviceId !== null) {
+            $this->device_id = $deviceId;
+        }
+        return $this->save(false);
+    }
+
+    /**
+     * Remove o device token (logout)
+     * 
+     * @return bool
+     */
+    public function clearDevice()
+    {
+        $this->device_token = null;
+        $this->device_id = null;
+        return $this->save(false);
+    }
+
+    /**
+     * Verifica se o cliente possui um dispositivo registrado
+     * 
+     * @return bool
+     */
+    public function hasDevice()
+    {
+        return !empty($this->device_token) && !empty($this->device_id);
     }
 }

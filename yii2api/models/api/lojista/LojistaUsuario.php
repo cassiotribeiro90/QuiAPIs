@@ -18,6 +18,10 @@ use yii\web\IdentityInterface;
  * @property string $auth_key
  * @property string|null $access_token
  * @property string|null $access_token_expira_em
+ * @property string|null $refresh_token
+ * @property string|null $refresh_token_expira_em
+ * @property string|null $device_id
+ * @property string|null $device_token
  * @property string|null $ultimo_login_ip
  * @property string|null $ultimo_login_em
  * @property string $criado_em
@@ -25,9 +29,6 @@ use yii\web\IdentityInterface;
  * @property string|null $deletado_em
  * @property string|null $reset_token
  * @property string|null $reset_token_expira_em
- * @property string|null $refresh_token
- * @property string|null $refresh_token_expira_em
- * @property string|null $device_id
  * @property string|null $ultimo_login_provider
  */
 class LojistaUsuario extends ActiveRecord implements IdentityInterface
@@ -56,11 +57,12 @@ class LojistaUsuario extends ActiveRecord implements IdentityInterface
             [['status'], 'default', 'value' => self::STATUS_ATIVO],
             [['funcao'], 'default', 'value' => self::FUNCAO_VENDEDOR],
             [['funcao'], 'in', 'range' => [self::FUNCAO_PROPRIETARIO, self::FUNCAO_GERENTE, self::FUNCAO_VENDEDOR]],
-            [['nome', 'email', 'telefone', 'cpf_cnpj'], 'string', 'max' => 255],
+            [['nome', 'email', 'telefone', 'cpf_cnpj', 'device_id', 'device_token'], 'string', 'max' => 255],
             [['auth_key'], 'string', 'max' => 32],
             [['access_token', 'refresh_token', 'reset_token'], 'string', 'max' => 255],
-            [['ultimo_login_ip', 'device_id'], 'string', 'max' => 45],
+            [['ultimo_login_ip'], 'string', 'max' => 45],
             [['ultimo_login_em', 'criado_em', 'atualizado_em', 'deletado_em', 'reset_token_expira_em', 'refresh_token_expira_em', 'access_token_expira_em'], 'safe'],
+            [['device_token', 'device_id'], 'safe'],
         ];
     }
 
@@ -74,6 +76,8 @@ class LojistaUsuario extends ActiveRecord implements IdentityInterface
             'cpf_cnpj' => 'CPF/CNPJ',
             'funcao' => 'Função',
             'status' => 'Status',
+            'device_id' => 'ID do Dispositivo',
+            'device_token' => 'Token do Dispositivo (FCM)',
             'ultimo_login_em' => 'Último Login',
             'criado_em' => 'Criado em',
             'atualizado_em' => 'Atualizado em',
@@ -192,7 +196,7 @@ class LojistaUsuario extends ActiveRecord implements IdentityInterface
     {
         return $this->hasMany(\app\models\api\app\Loja::class, ['id' => 'loja_id'])
             ->via('lojistaUsuarioLojas')
-            ->where(['loja.status' => 'ativo']); // ✅ 'ativo' em vez de 1
+            ->where(['loja.status' => 'ativo']);
     }
 
     /**
@@ -232,5 +236,47 @@ class LojistaUsuario extends ActiveRecord implements IdentityInterface
             $model->status = LojistaUsuarioLoja::STATUS_ATIVO;
             $model->save();
         }
+    }
+
+    // ==================== MÉTODOS PARA DEVICE TOKEN ====================
+
+    /**
+     * Atualiza o device token do lojista
+     * 
+     * @param string|null $token
+     * @param string|null $deviceId
+     * @return bool
+     */
+    public function updateDevice($token = null, $deviceId = null)
+    {
+        if ($token !== null) {
+            $this->device_token = $token;
+        }
+        if ($deviceId !== null) {
+            $this->device_id = $deviceId;
+        }
+        return $this->save(false);
+    }
+
+    /**
+     * Remove o device token (logout)
+     * 
+     * @return bool
+     */
+    public function clearDevice()
+    {
+        $this->device_token = null;
+        $this->device_id = null;
+        return $this->save(false);
+    }
+
+    /**
+     * Verifica se o lojista possui um dispositivo registrado
+     * 
+     * @return bool
+     */
+    public function hasDevice()
+    {
+        return !empty($this->device_token) && !empty($this->device_id);
     }
 }

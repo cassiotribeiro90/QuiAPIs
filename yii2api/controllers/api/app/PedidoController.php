@@ -5,6 +5,7 @@ namespace app\controllers\api\app;
 
 use Yii;
 use app\components\ApiResponse;
+use app\components\FirebaseService;
 use app\models\api\app\Pedido;
 use app\models\api\app\PedidoItem;
 use app\models\api\app\Carrinho;
@@ -13,6 +14,8 @@ use app\models\api\app\Loja;
 use app\models\api\app\AppEndereco;
 use app\controllers\api\app\AppControllerBase;
 use app\models\api\app\Usuario;
+use app\models\api\lojista\LojistaUsuario;
+use app\models\api\lojista\LojistaUsuarioLoja;
 
 class PedidoController extends AppControllerBase
 {
@@ -216,6 +219,11 @@ class PedidoController extends AppControllerBase
             $carrinho->delete();
 
             $transaction->commit();
+
+            // ============================================================
+            // 🔥 ENVIA NOTIFICAÇÃO PUSH PARA OS LOJISTAS DA LOJA
+            // ============================================================
+            $this->enviarPushLojistas($pedido);
 
             return ApiResponse::success([
                 'pedido_id'       => $pedido->id,
@@ -427,6 +435,96 @@ class PedidoController extends AppControllerBase
     }
 
     // ==================== MÉTODOS AUXILIARES ====================
+    /**
+     * Envia notificação push para todos os lojistas da loja
+     *
+     * @param Pedido $pedido
+     */
+    private function enviarPushLojistas($pedido)
+    {
+        // 🔥 Recarrega o pedido com as relações necessárias
+        $pedidoCompleto = Pedido::find()
+            ->with(['usuario', 'itens'])
+            ->where(['id' => $pedido->id])
+            ->one();
+
+        if (!$pedidoCompleto) {
+            Yii::error('[PUSH] ❌ Pedido ' . $pedido->id . ' não encontrado para recarregar', __METHOD__);
+            return;
+        }
+
+        Yii::info('[PUSH] 🔥 Iniciando envio para pedido ' . $pedidoCompleto->id . ' (loja ' . $pedidoCompleto->loja_id . ')', __METHOD__);
+
+        try {
+            // 1. Buscar lojistas vinculados à loja
+            $lojistasVinculados = LojistaUsuarioLoja::find()
+                ->where(['loja_id' => $pedidoCompleto->loja_id, 'status' => 1])
+                ->all();
+
+            Yii::info('[PUSH] 📋 Lojistas vinculados encontrados: ' . count($lojistasVinculados), __METHOD__);
+
+            if (empty($lojistasVinculados)) {
+                Yii::info('[PUSH] ⚠️ Nenhum lojista vinculado à loja ' . $pedidoCompleto->loja_id, __METHOD__);
+                return;
+            }
+
+            $lojistaIds = array_column($lojistasVinculados, 'usuario_id');
+            Yii::info('[PUSH] 📋 IDs dos lojistas vinculados: ' . implode(', ', $lojistaIds), __METHOD__);
+
+            // 2. Filtrar apenas os que têm device_token
+            $lojistas = LojistaUsuario::find()
+                ->where(['id' => $lojistaIds])
+                ->andWhere(['not', ['device_token' => null]])
+                ->andWhere(['<>', 'device_token', ''])
+                ->all();
+
+            Yii::info('[PUSH] 📱 Lojistas com device_token: ' . count($lojistas), __METHOD__);
+
+            if (empty($lojistas)) {
+                Yii::info('[PUSH] ⚠️ Nenhum lojista com device_token', __METHOD__);
+                return;
+            }
+
+            // 3. Instanciar FirebaseService
+            try {
+                $firebase = FirebaseService::getInstance();
+                Yii::info('[PUSH] ✅ FirebaseService instanciado com sucesso', __METHOD__);
+            } catch (\Exception $e) {
+                Yii::error('[PUSH] ❌ Falha ao instanciar FirebaseService: ' . $e->getMessage(), __METHOD__);
+                return;
+            }
+
+            $enviados = 0;
+
+            // 4. Enviar para cada lojista
+            foreach ($lojistas as $lojista) {
+                try {
+                    Yii::info('[PUSH] 📤 Enviando para lojista ' . $lojista->id . ' (token: ' . substr($lojista->device_token, 0, 10) . '...)', __METHOD__);
+
+                    // 🔥 Envia usando o pedido completo (com relações)
+                    $result = $firebase->sendPedidoNotification(
+                        $lojista->device_token,
+                        $pedidoCompleto,
+                        'novo_pedido'
+                    );
+
+                    if ($result) {
+                        $enviados++;
+                        Yii::info('[PUSH] ✅ Enviado com sucesso para lojista ' . $lojista->id, __METHOD__);
+                    } else {
+                        Yii::warning('[PUSH] ⚠️ Envio retornou null para lojista ' . $lojista->id, __METHOD__);
+                    }
+                } catch (\Exception $e) {
+                    Yii::error('[PUSH] ❌ Erro ao enviar para lojista ' . $lojista->id . ': ' . $e->getMessage(), __METHOD__);
+                }
+            }
+
+            Yii::info('[PUSH] 🎯 Total enviados: ' . $enviados . ' de ' . count($lojistas), __METHOD__);
+
+        } catch (\Exception $e) {
+            Yii::error('[PUSH] ❌ Erro geral: ' . $e->getMessage(), __METHOD__);
+        }
+    }
 
     /**
      * Gera código amigável: AAAAMMDD-XXX (contador diário)

@@ -33,6 +33,18 @@ $config = [
                 }
             },
         ],
+        'log' => [
+            'traceLevel' => YII_DEBUG ? 3 : 0,
+            'targets' => [
+                [
+                    'class' => 'yii\log\FileTarget',
+                    'levels' => ['error', 'warning', 'info', 'trace'], // 🔥 Inclua 'info'
+                ],
+            ],
+        ],
+        'firebase' => [
+            'class' => 'app\components\FirebaseService',
+        ],
         // ==================== CONFIGURAÇÃO DE USUÁRIOS ====================
         // Usuário padrão (para APP - clientes)
         'user' => [
@@ -344,6 +356,13 @@ $config = [
                 'api/lojista/loja' => 'api/lojista/loja/index',
                 'PUT api/lojista/loja' => 'api/lojista/loja/update',
                 'POST api/lojista/loja' => 'api/lojista/loja/update', // alternativa
+
+                // ==================== ROTAS DO FIREBASE ====================
+                'POST api/lojista/device-token' => 'api/lojista/device-token/index',
+                'DELETE api/lojista/device-token' => 'api/lojista/device-token/delete',
+                'GET api/lojista/teste-firebase' => 'api/lojista/teste-firebase/index',
+                'POST api/lojista/teste-push' => 'api/lojista/teste-push/index',
+
             ],
         ],
     ],
