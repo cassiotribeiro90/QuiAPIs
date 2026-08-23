@@ -310,13 +310,11 @@ class LojaHomeController extends AppControllerBase
             "p.disponivel = 1"
         ];
         
-        // Filtro por subcategoria específica
         if ($categoriaId && $categoriaId > 0) {
             $whereConditions[] = "p.subcategoria_id = :categoria_id";
             $params[':categoria_id'] = $categoriaId;
         }
         
-        // Filtro por busca textual
         if (!empty($search) && trim($search) !== '') {
             $whereConditions[] = "(p.nome LIKE :search OR p.descricao LIKE :search)";
             $params[':search'] = "%{$search}%";
@@ -324,12 +322,13 @@ class LojaHomeController extends AppControllerBase
         
         $whereClause = implode(" AND ", $whereConditions);
         
-        // ===== BUSCAR SUBCATEGORIAS COM PRODUTOS =====
-        $sqlSubcategorias = "SELECT DISTINCT s.id, s.nome, s.icone, s.ordem
-                             FROM subcategoria s
-                             INNER JOIN produto p ON p.subcategoria_id = s.id
-                             WHERE {$whereClause}
-                             ORDER BY s.ordem ASC";
+        // ===== BUSCAR SUBCATEGORIAS COM CONTAGEM TOTAL DE PRODUTOS =====
+        $sqlSubcategorias = "SELECT s.id, s.nome, s.icone, s.ordem
+                            FROM subcategoria s
+                            INNER JOIN produto p ON p.subcategoria_id = s.id
+                            WHERE {$whereClause}
+                            GROUP BY s.id
+                            ORDER BY s.ordem ASC";
         
         $subcategorias = Yii::$app->db->createCommand($sqlSubcategorias, $params)->queryAll();
         
@@ -348,13 +347,14 @@ class LojaHomeController extends AppControllerBase
         // ===== ORDENAÇÃO =====
         $orderSql = $this->getOrderBySql($orderBy);
         
-        // ===== PARA CADA SUBCATEGORIA, BUSCAR SEUS PRODUTOS =====
-        $secoes = [];
+        // ===== COLETA TODOS OS PRODUTOS DE TODAS AS SEÇÕES =====
+        $todosProdutos = []; // lista plana de produtos com 'subcategoria_id'
         $totalProdutosGeral = 0;
+        $secoesInfo = []; // guarda metadados das seções
         
         foreach ($subcategorias as $subcategoria) {
-            // Parâmetros para produtos desta subcategoria
-            $prodParams = [':loja_id' => $lojaId, ':subcategoria_id' => $subcategoria['id']];
+            $subId = (int)$subcategoria['id'];
+            $prodParams = [':loja_id' => $lojaId, ':subcategoria_id' => $subId];
             
             $prodWhereConditions = [
                 "p.loja_id = :loja_id",
@@ -364,7 +364,6 @@ class LojaHomeController extends AppControllerBase
                 "p.disponivel = 1"
             ];
             
-            // Adicionar filtro de busca se houver
             if (!empty($search) && trim($search) !== '') {
                 $prodWhereConditions[] = "(p.nome LIKE :search OR p.descricao LIKE :search)";
                 $prodParams[':search'] = "%{$search}%";
@@ -372,26 +371,88 @@ class LojaHomeController extends AppControllerBase
             
             $prodWhereClause = implode(" AND ", $prodWhereConditions);
             
-            // Contar produtos desta subcategoria
-            $countSql = "SELECT COUNT(*) as total FROM produto p WHERE {$prodWhereClause}";
-            $total = (int)Yii::$app->db->createCommand($countSql, $prodParams)->queryScalar();
-            $totalProdutosGeral += $total;
+            // Conta total de produtos da seção
+            $countSql = "SELECT COUNT(*) FROM produto p WHERE {$prodWhereClause}";
+            $totalSecao = (int)Yii::$app->db->createCommand($countSql, $prodParams)->queryScalar();
+            $totalProdutosGeral += $totalSecao;
             
-            // Buscar produtos (sem paginação por seção, todas as seções são retornadas)
-            $sqlProdutos = "SELECT p.*
-                           FROM produto p
-                           WHERE {$prodWhereClause}
-                           {$orderSql}";
+            // Busca todos os produtos da seção (sem LIMIT)
+            $sqlProdutos = "SELECT p.* FROM produto p WHERE {$prodWhereClause} {$orderSql}";
+            $produtosSecao = Yii::$app->db->createCommand($sqlProdutos, $prodParams)->queryAll();
             
-            $produtos = Yii::$app->db->createCommand($sqlProdutos, $prodParams)->queryAll();
+            foreach ($produtosSecao as $produto) {
+                $produto['subcategoria_id'] = $subId; // garante que está definido
+                $todosProdutos[] = $produto;
+            }
             
-            $secoes[] = [
-                'id' => (int)$subcategoria['id'],
+            $secoesInfo[$subId] = [
+                'id' => $subId,
                 'nome' => $subcategoria['nome'],
                 'icone' => $subcategoria['icone'] ?: $this->getIconePorNome($subcategoria['nome']),
                 'ordem' => (int)$subcategoria['ordem'],
-                'total_produtos' => $total,
-                'produtos' => array_map(function($produto) {
+                'total_produtos' => $totalSecao,
+            ];
+        }
+        
+        // ===== PRODUTOS SEM SUBCATEGORIA ("Outros") =====
+        $outrosParams = [':loja_id' => $lojaId];
+        $outrosWhereConditions = [
+            "p.loja_id = :loja_id",
+            "p.subcategoria_id IS NULL",
+            "p.deletado_em IS NULL",
+            "p.ativo = 1",
+            "p.disponivel = 1"
+        ];
+        if (!empty($search) && trim($search) !== '') {
+            $outrosWhereConditions[] = "(p.nome LIKE :search OR p.descricao LIKE :search)";
+            $outrosParams[':search'] = "%{$search}%";
+        }
+        $outrosWhereClause = implode(" AND ", $outrosWhereConditions);
+        
+        $countOutrosSql = "SELECT COUNT(*) FROM produto p WHERE {$outrosWhereClause}";
+        $totalOutros = (int)Yii::$app->db->createCommand($countOutrosSql, $outrosParams)->queryScalar();
+        
+        if ($totalOutros > 0) {
+            $sqlOutrosProdutos = "SELECT p.* FROM produto p WHERE {$outrosWhereClause} {$orderSql}";
+            $produtosOutros = Yii::$app->db->createCommand($sqlOutrosProdutos, $outrosParams)->queryAll();
+            
+            foreach ($produtosOutros as $produto) {
+                $produto['subcategoria_id'] = 0; // marca como "Outros"
+                $todosProdutos[] = $produto;
+            }
+            
+            $secoesInfo[0] = [
+                'id' => 0,
+                'nome' => 'Outros',
+                'icone' => '📦',
+                'ordem' => 999,
+                'total_produtos' => $totalOutros,
+            ];
+            
+            $totalProdutosGeral += $totalOutros;
+        }
+        
+        // ===== APLICAR PAGINAÇÃO GLOBAL =====
+        $offset = ($page - 1) * $perPage;
+        $produtosPaginados = array_slice($todosProdutos, $offset, $perPage);
+        
+        // ===== REAGRUPAR PRODUTOS PAGINADOS POR SEÇÃO =====
+        $secoes = [];
+        foreach ($secoesInfo as $subId => $info) {
+            $produtosDaSecao = array_values(array_filter(
+                $produtosPaginados,
+                function ($produto) use ($subId) {
+                    return (int)$produto['subcategoria_id'] === (int)$subId;
+                }
+            ));
+            
+            $secoes[] = [
+                'id' => $info['id'],
+                'nome' => $info['nome'],
+                'icone' => $info['icone'],
+                'ordem' => $info['ordem'],
+                'total_produtos' => $info['total_produtos'],
+                'produtos' => array_map(function ($produto) {
                     return [
                         'id' => (int)$produto['id'],
                         'nome' => $produto['nome'],
@@ -410,64 +471,14 @@ class LojaHomeController extends AppControllerBase
                         'ingredientes' => $produto['ingredientes'] ? json_decode($produto['ingredientes'], true) : null,
                         'opcionais' => $produto['opcoes'] ? json_decode($produto['opcoes'], true) : null,
                     ];
-                }, $produtos),
+                }, $produtosDaSecao),
             ];
         }
         
-        // Produtos sem subcategoria (seção "Outros")
-        $outrosParams = [':loja_id' => $lojaId];
-        $outrosWhereConditions = [
-            "p.loja_id = :loja_id",
-            "p.subcategoria_id IS NULL",
-            "p.deletado_em IS NULL",
-            "p.ativo = 1",
-            "p.disponivel = 1"
-        ];
-        
-        if (!empty($search) && trim($search) !== '') {
-            $outrosWhereConditions[] = "(p.nome LIKE :search OR p.descricao LIKE :search)";
-            $outrosParams[':search'] = "%{$search}%";
-        }
-        
-        $outrosWhereClause = implode(" AND ", $outrosWhereConditions);
-        
-        $countOutrosSql = "SELECT COUNT(*) as total FROM produto p WHERE {$outrosWhereClause}";
-        $totalOutros = (int)Yii::$app->db->createCommand($countOutrosSql, $outrosParams)->queryScalar();
-        
-        if ($totalOutros > 0) {
-            $sqlOutrosProdutos = "SELECT p.* FROM produto p WHERE {$outrosWhereClause} {$orderSql}";
-            $produtosOutros = Yii::$app->db->createCommand($sqlOutrosProdutos, $outrosParams)->queryAll();
-            
-            $secoes[] = [
-                'id' => 0,
-                'nome' => 'Outros',
-                'icone' => '📦',
-                'ordem' => 999,
-                'total_produtos' => $totalOutros,
-                'produtos' => array_map(function($produto) {
-                    return [
-                        'id' => (int)$produto['id'],
-                        'nome' => $produto['nome'],
-                        'tipo' => $produto['tipo'] ?? 'simples',
-                        'descricao' => $produto['descricao'],
-                        'preco' => (float)$produto['preco'],
-                        'preco_promocional' => $produto['preco_promocional'] ? (float)$produto['preco_promocional'] : null,
-                        'imagem' => $produto['imagem'],
-                        'tempo_preparo' => $produto['tempo_preparo_min'] ? (int)$produto['tempo_preparo_min'] : null,
-                        'disponivel' => (bool)$produto['disponivel'],
-                        'destaque' => (bool)$produto['destaque'],
-                        'vendas_hoje' => (int)$produto['vendas_hoje'],
-                        'nota_media' => (float)$produto['nota_media'],
-                        'total_avaliacoes' => (int)$produto['total_avaliacoes'],
-                        'subcategoria_id' => null,
-                        'ingredientes' => $produto['ingredientes'] ? json_decode($produto['ingredientes'], true) : null,
-                        'opcionais' => $produto['opcoes'] ? json_decode($produto['opcoes'], true) : null,
-                    ];
-                }, $produtosOutros),
-            ];
-            
-            $totalProdutosGeral += $totalOutros;
-        }
+        // Ordena as seções pela ordem definida
+        usort($secoes, function ($a, $b) {
+            return $a['ordem'] <=> $b['ordem'];
+        });
         
         $totalPages = ceil($totalProdutosGeral / $perPage);
         
