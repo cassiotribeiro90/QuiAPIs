@@ -100,7 +100,7 @@ class AuthController extends AppControllerBase
         ]);
     }
 
-    /**
+   /**
      * POST /api/app/auth/verify-otp
      * Verifica código OTP e marca telefone como verificado
      * 🔥 VALIDAÇÃO DUMB: aceita qualquer código de 6 dígitos (desenvolvimento)
@@ -148,7 +148,6 @@ class AuthController extends AppControllerBase
 
         // 🔥 🔥 🔥 VALIDAÇÃO DUMB: QUALQUER CÓDIGO DE 6 DÍGITOS É ACEITO
         // TODO: Remover em produção e validar com reset_token
-        // Não comparamos com o reset_token nem verificamos expiração.
 
         // Limpa o token gerado (opcional, mantemos para não acumular)
         $usuario->reset_token = null;
@@ -177,8 +176,23 @@ class AuthController extends AppControllerBase
             }
         }
 
+        // ✅ CORREÇÃO: GERA APENAS O ACCESS TOKEN
+        // O REFRESH TOKEN É MANTIDO (se já existir) ou criado apenas uma vez
         $accessToken = $usuario->generateAccessToken(7200);
-        $refreshToken = $usuario->generateRefreshToken(2592000);
+        
+        // ✅ SE NÃO TIVER REFRESH TOKEN, CRIA UM
+        if (empty($usuario->refresh_token)) {
+            $usuario->generateRefreshToken(2592000);
+        }
+        
+        // ✅ GARANTE QUE O REFRESH TOKEN NÃO EXPIROU
+        if ($usuario->refresh_token_expira_em !== null) {
+            $refreshExpiry = strtotime($usuario->refresh_token_expira_em);
+            if ($refreshExpiry < time()) {
+                // Se expirou, renova
+                $usuario->generateRefreshToken(2592000);
+            }
+        }
 
         $usuario->ultimo_login_em = date('Y-m-d H:i:s');
         $usuario->login_count = ($usuario->login_count ?? 0) + 1;
@@ -186,7 +200,7 @@ class AuthController extends AppControllerBase
 
         return ApiResponse::success([
             'access_token' => $accessToken,
-            'refresh_token' => $refreshToken,
+            'refresh_token' => $usuario->refresh_token, // ✅ MANTÉM O REFRESH TOKEN EXISTENTE
             'expires_in' => 7200,
             'token_type' => 'Bearer',
             'usuario' => $this->formatUsuario($usuario),
