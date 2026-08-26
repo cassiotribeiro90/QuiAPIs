@@ -9,6 +9,7 @@ use app\models\api\gestor\Loja;
 use app\models\api\app\Pedido;
 use app\models\api\app\Usuario;
 use app\models\api\app\Avaliacao;
+use yii\web\UnauthorizedHttpException;
 
 class DashboardController extends ControllerBase
 {
@@ -17,6 +18,7 @@ class DashboardController extends ControllerBase
     public function actionIndex()
     {
         try {
+            // 🔥 VALIDA O TOKEN PRIMEIRO (LANÇA 401 SE INVÁLIDO)
             $this->getUserByToken();
 
             $data = [
@@ -37,8 +39,16 @@ class DashboardController extends ControllerBase
 
             return ApiResponse::success($data, 'Dashboard carregado com sucesso');
 
+        } catch (UnauthorizedHttpException $e) {
+            // 🔥 RETORNA 401 PARA TOKEN INVÁLIDO/EXPIRADO
+            return ApiResponse::error($e->getMessage(), 401, 'unauthorized');
         } catch (\Exception $e) {
-            return ApiResponse::error($e->getMessage(), 500, 'internal_error');
+            // 🔥 OUTROS ERROS → 500
+            return ApiResponse::error(
+                $e->getMessage(),
+                500,
+                'internal_error'
+            );
         }
     }
 

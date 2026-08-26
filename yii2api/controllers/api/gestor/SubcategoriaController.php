@@ -9,6 +9,7 @@ use app\models\api\gestor\Subcategoria;
 use app\models\api\gestor\Categoria;
 use app\controllers\api\gestor\ControllerBase;
 use yii\web\NotFoundHttpException;
+use yii\caching\DbDependency;
 
 class SubcategoriaController extends ControllerBase
 {
@@ -16,7 +17,7 @@ class SubcategoriaController extends ControllerBase
 
     /**
      * GET /api/gestor/subcategorias
-     * Lista todas as subcategorias com paginação e filtros
+     * Lista todas as subcategorias com paginação, filtros e opções de filtro
      */
     public function actionIndex()
     {
@@ -26,18 +27,16 @@ class SubcategoriaController extends ControllerBase
             $request = Yii::$app->request;
 
             $query = Subcategoria::find()
-                ->with('categoria')   // Carrega a relação categoria para obter o emoji
+                ->with('categoria')
                 ->orderBy(['categoria_id' => SORT_ASC, 'nome' => SORT_ASC]);
 
-            // Filtros
+            // Filtros (usando 'ativo', não 'deletado_em')
             if ($request->get('categoria_id')) {
-                $query->andWhere(['categoria_id' => $request->get('categoria_id')]);
+                $query->andWhere(['categoria_id' => (int)$request->get('categoria_id')]);
             }
-
             if ($request->get('ativo') !== null) {
-                $query->andWhere(['ativo' => $request->get('ativo')]);
+                $query->andWhere(['ativo' => (int)$request->get('ativo')]);
             }
-
             if ($request->get('search')) {
                 $search = $request->get('search');
                 $query->andWhere([
@@ -59,6 +58,9 @@ class SubcategoriaController extends ControllerBase
                 return $this->formatarSubcategoria($subcategoria);
             }, $subcategorias);
 
+            // 🔥 FILTER OPTIONS (com cache)
+            $filterOptions = $this->generateFilterOptions();
+
             return ApiResponse::success([
                 'items' => $data,
                 'pagination' => [
@@ -66,7 +68,8 @@ class SubcategoriaController extends ControllerBase
                     'page' => $page,
                     'per_page' => $perPage,
                     'total_pages' => ceil($total / $perPage)
-                ]
+                ],
+                'filter_options' => $filterOptions,
             ], 'Lista de subcategorias recuperada com sucesso');
 
         } catch (\Exception $e) {
@@ -80,7 +83,6 @@ class SubcategoriaController extends ControllerBase
 
     /**
      * GET /api/gestor/subcategorias/<id>
-     * Visualiza uma subcategoria específica
      */
     public function actionView($id)
     {
@@ -104,7 +106,6 @@ class SubcategoriaController extends ControllerBase
 
     /**
      * POST /api/gestor/subcategorias/create
-     * Cria uma nova subcategoria
      */
     public function actionCreate()
     {
@@ -113,7 +114,6 @@ class SubcategoriaController extends ControllerBase
 
             $dados = Yii::$app->request->post();
 
-            // Valida campos obrigatórios
             $obrigatorios = ['categoria_id', 'nome'];
             $erros = [];
             foreach ($obrigatorios as $campo) {
@@ -130,7 +130,6 @@ class SubcategoriaController extends ControllerBase
                 );
             }
 
-            // Verifica se categoria existe
             $categoria = Categoria::findOne($dados['categoria_id']);
             if (!$categoria) {
                 return ApiResponse::error(
@@ -140,13 +139,11 @@ class SubcategoriaController extends ControllerBase
                 );
             }
 
-            // Verifica duplicidade dentro da mesma categoria
             $existe = Subcategoria::find()
                 ->where([
                     'categoria_id' => $dados['categoria_id'],
                     'nome' => $dados['nome']
                 ])->exists();
-                
             if ($existe) {
                 return ApiResponse::error(
                     'Já existe uma subcategoria com este nome nesta categoria',
@@ -159,12 +156,10 @@ class SubcategoriaController extends ControllerBase
             $this->popularSubcategoria($subcategoria, $dados);
 
             if ($subcategoria->save()) {
-                // Recarrega com relação para retornar dados completos
                 $subcategoria = Subcategoria::find()
                     ->with('categoria')
                     ->andWhere(['id' => $subcategoria->id])
                     ->one();
-                    
                 return ApiResponse::success(
                     $this->formatarSubcategoria($subcategoria, true),
                     'Subcategoria criada com sucesso',
@@ -190,7 +185,6 @@ class SubcategoriaController extends ControllerBase
 
     /**
      * PUT /api/gestor/subcategorias/update/<id>
-     * Atualiza uma subcategoria
      */
     public function actionUpdate($id)
     {
@@ -200,7 +194,6 @@ class SubcategoriaController extends ControllerBase
 
             $dados = Yii::$app->request->post();
 
-            // Se mudou de categoria, verifica se nova categoria existe
             if (isset($dados['categoria_id']) && $dados['categoria_id'] != $subcategoria->categoria_id) {
                 $categoria = Categoria::findOne($dados['categoria_id']);
                 if (!$categoria) {
@@ -212,10 +205,8 @@ class SubcategoriaController extends ControllerBase
                 }
             }
 
-            // Se nome foi alterado, verificar duplicidade
             if (isset($dados['nome']) && $dados['nome'] !== $subcategoria->nome) {
                 $categoriaId = $dados['categoria_id'] ?? $subcategoria->categoria_id;
-                
                 $existe = Subcategoria::find()
                     ->where([
                         'categoria_id' => $categoriaId,
@@ -223,7 +214,6 @@ class SubcategoriaController extends ControllerBase
                     ])
                     ->andWhere(['!=', 'id', $id])
                     ->exists();
-                    
                 if ($existe) {
                     return ApiResponse::error(
                         'Já existe uma subcategoria com este nome nesta categoria',
@@ -236,12 +226,10 @@ class SubcategoriaController extends ControllerBase
             $this->popularSubcategoria($subcategoria, $dados);
 
             if ($subcategoria->save()) {
-                // Recarrega com relação para garantir dados atualizados
                 $subcategoria = Subcategoria::find()
                     ->with('categoria')
                     ->andWhere(['id' => $subcategoria->id])
                     ->one();
-                    
                 return ApiResponse::success(
                     $this->formatarSubcategoria($subcategoria, true),
                     'Subcategoria atualizada com sucesso'
@@ -266,21 +254,19 @@ class SubcategoriaController extends ControllerBase
 
     /**
      * GET /api/gestor/subcategorias/por-categoria/<id>
-     * Retorna todas as subcategorias ativas de uma categoria específica
      */
     public function actionPorCategoria($id)
     {
         try {
             $this->getUserByToken();
 
-            // Verifica se a categoria existe
             $categoria = Categoria::findOne($id);
             if (!$categoria) {
                 throw new NotFoundHttpException('Categoria não encontrada');
             }
 
             $subcategorias = Subcategoria::find()
-                ->with('categoria')   // carrega relação para obter emoji
+                ->with('categoria')
                 ->where(['categoria_id' => $id, 'ativo' => 1])
                 ->orderBy(['ordem' => SORT_ASC, 'nome' => SORT_ASC])
                 ->all();
@@ -291,7 +277,7 @@ class SubcategoriaController extends ControllerBase
                     'nome' => $sub->nome,
                     'icone' => $sub->icone,
                     'ordem' => $sub->ordem,
-                    'categoria_icone' => $sub->categoria->icone ?? null, // novo campo
+                    'categoria_icone' => $sub->categoria->icone ?? null,
                 ];
             }, $subcategorias);
 
@@ -308,14 +294,12 @@ class SubcategoriaController extends ControllerBase
 
     /**
      * DELETE /api/gestor/subcategorias/delete/<id>
-     * Remove uma subcategoria (verifica se tem produtos vinculados)
      */
     public function actionDelete($id)
     {
         try {
             $usuarioLogado = $this->getUserByToken();
 
-            // Apenas admin pode deletar
             if ($usuarioLogado->nivel !== 'admin') {
                 return ApiResponse::error(
                     'Apenas administradores podem remover subcategorias',
@@ -326,16 +310,12 @@ class SubcategoriaController extends ControllerBase
 
             $subcategoria = $this->findModel($id);
 
-            // Verifica se tem produtos vinculados (quando existir model Produto)
-            // if ($subcategoria->getProdutos()->count() > 0) {
-            //     return ApiResponse::error(
-            //         'Não é possível excluir subcategoria com produtos vinculados',
-            //         409,
-            //         'has_products'
-            //     );
-            // }
+            // Verifica se tem produtos vinculados (quando houver model Produto)
+            // if ($subcategoria->getProdutos()->count() > 0) { ... }
 
-            if ($subcategoria->delete()) {
+            // Soft delete usando 'ativo' = 0 em vez de deletado_em
+            $subcategoria->ativo = 0;
+            if ($subcategoria->save()) {
                 return ApiResponse::success(null, 'Subcategoria removida com sucesso');
             }
 
@@ -356,7 +336,6 @@ class SubcategoriaController extends ControllerBase
 
     /**
      * GET /api/gestor/subcategorias/options
-     * Retorna opções para selects
      */
     public function actionOptions()
     {
@@ -364,7 +343,6 @@ class SubcategoriaController extends ControllerBase
             $this->getUserByToken();
 
             $categoriaId = Yii::$app->request->get('categoria_id');
-            
             $query = Subcategoria::find()
                 ->select(['id', 'nome', 'categoria_id'])
                 ->where(['ativo' => 1])
@@ -389,25 +367,20 @@ class SubcategoriaController extends ControllerBase
         }
     }
 
-    /**
-     * Busca model pelo ID (carregando a relação categoria)
-     */
+    // ==================== MÉTODOS AUXILIARES ====================
+
     private function findModel($id)
     {
         $subcategoria = Subcategoria::find()
             ->with('categoria')
             ->andWhere(['id' => $id])
             ->one();
-            
         if (!$subcategoria) {
             throw new NotFoundHttpException('Subcategoria não encontrada');
         }
         return $subcategoria;
     }
 
-    /**
-     * Formata dados da subcategoria para resposta
-     */
     private function formatarSubcategoria($subcategoria, $detalhado = false)
     {
         $dados = [
@@ -418,7 +391,6 @@ class SubcategoriaController extends ControllerBase
             'icone' => $subcategoria->icone,
             'ativo' => (bool)$subcategoria->ativo,
             'ordem' => (int)$subcategoria->ordem,
-            // Novo campo: emoji da categoria pai
             'categoria_icone' => $subcategoria->categoria->icone ?? null,
         ];
 
@@ -435,17 +407,83 @@ class SubcategoriaController extends ControllerBase
         return $dados;
     }
 
-    /**
-     * Popula dados da subcategoria
-     */
     private function popularSubcategoria($subcategoria, $dados)
     {
         $campos = ['categoria_id', 'nome', 'descricao', 'icone', 'imagem', 'ordem', 'ativo'];
-        
         foreach ($campos as $campo) {
             if (isset($dados[$campo])) {
                 $subcategoria->$campo = $dados[$campo];
             }
         }
+    }
+
+    /**
+     * 🔥 Gera as opções de filtro (com cache)
+     */
+    private function generateFilterOptions()
+    {
+        $cacheKey = 'subcategorias_filter_options_v2';
+        
+        $dependency = new DbDependency([
+            'sql' => 'SELECT MAX(atualizado_em) FROM subcategoria',
+        ]);
+
+        return Yii::$app->cache->getOrSet(
+            $cacheKey,
+            function () {
+                return $this->buildFilterOptions();
+            },
+            3600,
+            $dependency
+        );
+    }
+
+    /**
+     * 🔥 Constrói as opções de filtro (sem cache)
+     * Usa 'ativo' em vez de 'deletado_em'
+     */
+    private function buildFilterOptions()
+    {
+        // 🔥 CATEGORIAS COM CONTAGEM DE SUBCATEGORIAS
+        // Conta todas as subcategorias (ativas e inativas)
+        $categoriasComContagem = (new \yii\db\Query())
+            ->select(['c.id', 'c.nome', 'c.icone', 'COUNT(s.id) as total'])
+            ->from('categoria c')
+            ->leftJoin('subcategoria s', 's.categoria_id = c.id')
+            ->where(['c.ativo' => 1]) // apenas categorias ativas
+            ->groupBy('c.id')
+            ->having(['>', 'total', 0])
+            ->orderBy(['c.nome' => SORT_ASC])
+            ->all();
+
+        $categoriaOptions = [];
+        foreach ($categoriasComContagem as $item) {
+            $categoriaOptions[] = [
+                'value' => (string)$item['id'],
+                'label' => $item['nome'],
+                'count' => (int)$item['total'],
+                'icone' => $item['icone'] ?? null,
+            ];
+        }
+
+        // Ativo / Inativo
+        $ativoCount = Subcategoria::find()->where(['ativo' => 1])->count();
+        $inativoCount = Subcategoria::find()->where(['ativo' => 0])->count();
+
+        return [
+            'categoria_id' => $categoriaOptions,
+            'ativo' => [
+                [
+                    'value' => '1',
+                    'label' => 'Ativas',
+                    'count' => (int)$ativoCount,
+                ],
+                [
+                    'value' => '0',
+                    'label' => 'Inativas',
+                    'count' => (int)$inativoCount,
+                ],
+            ],
+        ];
     }
 }

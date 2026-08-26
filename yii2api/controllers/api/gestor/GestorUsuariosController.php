@@ -7,6 +7,8 @@ use Yii;
 use app\components\ApiResponse;
 use app\models\api\gestor\GestorUsuario;
 use app\controllers\api\gestor\ControllerBase;
+use yii\web\NotFoundHttpException;
+use yii\caching\DbDependency;
 
 class GestorUsuariosController extends ControllerBase
 {
@@ -14,13 +16,14 @@ class GestorUsuariosController extends ControllerBase
 
     /**
      * GET /api/gestor/gestor-usuarios
-     * Lista todos os gestores com paginação
+     * Lista todos os gestores com paginação, filtros e opções de filtro
      */
     public function actionIndex()
     {
         try {
             $usuarioLogado = $this->getUserByToken();
             
+            // Se não for admin, retorna apenas o próprio usuário (actionMe)
             if ($usuarioLogado->nivel !== 'admin') {
                 return $this->actionMe();
             }
@@ -36,7 +39,6 @@ class GestorUsuariosController extends ControllerBase
                 $niveis = explode(',', $request->get('nivel'));
                 $niveis = array_map('trim', $niveis);
                 $niveis = array_filter($niveis);
-                
                 if (!empty($niveis)) {
                     $query->andWhere(['in', 'nivel', $niveis]);
                 }
@@ -49,7 +51,6 @@ class GestorUsuariosController extends ControllerBase
                 $statusList = array_filter($statusList, function($value) {
                     return in_array($value, [0, 1, 2]);
                 });
-                
                 if (!empty($statusList)) {
                     $query->andWhere(['in', 'status', $statusList]);
                 }
@@ -66,6 +67,7 @@ class GestorUsuariosController extends ControllerBase
                 ]);
             }
             
+            // Paginação
             $page = (int)$request->get('page', 1);
             $perPage = (int)$request->get('per_page', 20);
             $offset = ($page - 1) * $perPage;
@@ -77,6 +79,9 @@ class GestorUsuariosController extends ControllerBase
                 return $this->formatarGestor($gestor, false);
             }, $gestores);
             
+            // Filter options (com cache)
+            $filterOptions = $this->generateFilterOptions();
+            
             return ApiResponse::success([
                 'items' => $data,
                 'pagination' => [
@@ -84,7 +89,8 @@ class GestorUsuariosController extends ControllerBase
                     'page' => $page,
                     'per_page' => $perPage,
                     'total_pages' => ceil($total / $perPage)
-                ]
+                ],
+                'filter_options' => $filterOptions,
             ], 'Lista de gestores recuperada com sucesso');
             
         } catch (\Exception $e) {
@@ -130,7 +136,7 @@ class GestorUsuariosController extends ControllerBase
 
     /**
      * POST /api/gestor/gestor-usuarios/login
-     * Login do gestor com device_id e device_token
+     * Login do gestor com device_id e device_token (CORRIGIDO)
      */
     public function actionLogin()
     {
@@ -168,19 +174,36 @@ class GestorUsuariosController extends ControllerBase
                 );
             }
 
-            // 🔥 ATUALIZA DEVICE_ID E DEVICE_TOKEN
+            // ATUALIZA DEVICE_ID E DEVICE_TOKEN
             if (!empty($deviceId)) {
                 $gestor->device_id = $deviceId;
+                Yii::info("[LOGIN] Device ID atualizado: $deviceId", __METHOD__);
             }
             if (!empty($deviceToken)) {
                 $gestor->device_token = $deviceToken;
+                Yii::info("[LOGIN] Device Token atualizado", __METHOD__);
             }
 
-            // 🔥 ATUALIZA METADADOS DO LOGIN
+            // ATUALIZA METADADOS DO LOGIN
             $gestor->ultimo_login_em = date('Y-m-d H:i:s');
             $gestor->ultimo_login_ip = $request->userIP;
 
-            // 🔥 SALVA (COM VERIFICAÇÃO DE ERRO)
+            // MANTÉM O REFRESH TOKEN EXISTENTE, SE VÁLIDO
+            $refreshToken = $gestor->refresh_token;
+            $refreshExpira = $gestor->refresh_token_expira_em;
+
+            if (empty($refreshToken) || strtotime($refreshExpira) < time()) {
+                $refreshToken = $gestor->generateRefreshToken();
+                $gestor->refresh_token = $refreshToken;
+                $gestor->refresh_token_expira_em = date('Y-m-d H:i:s', time() + 2592000);
+                Yii::info("[LOGIN] Novo refresh token gerado para gestor {$gestor->id}", __METHOD__);
+            } else {
+                Yii::info("[LOGIN] Refresh token existente mantido para gestor {$gestor->id}", __METHOD__);
+            }
+
+            // GERA NOVO ACCESS TOKEN
+            $accessToken = $gestor->generateAccessToken();
+
             if (!$gestor->save()) {
                 Yii::error('[LOGIN] Erro ao salvar gestor: ' . json_encode($gestor->errors), __METHOD__);
                 return ApiResponse::error(
@@ -189,10 +212,6 @@ class GestorUsuariosController extends ControllerBase
                     'save_error'
                 );
             }
-
-            // 🔥 GERA TOKENS
-            $accessToken = $gestor->generateAccessToken();
-            $refreshToken = $gestor->generateRefreshToken();
             
             return ApiResponse::success([
                 'id' => $gestor->id,
@@ -210,7 +229,7 @@ class GestorUsuariosController extends ControllerBase
         } catch (\Exception $e) {
             Yii::error('[LOGIN] Exceção: ' . $e->getMessage() . ' em ' . $e->getFile() . ':' . $e->getLine(), __METHOD__);
             return ApiResponse::error(
-                'Erro no login',
+                'Erro no login: ' . $e->getMessage(),
                 500,
                 'login_error'
             );
@@ -219,22 +238,17 @@ class GestorUsuariosController extends ControllerBase
 
     /**
      * POST /api/gestor/gestor-usuarios/logout
-     * Logout do gestor
-     * $gestor @GestorUsuario
      */
     public function actionLogout()
     {
         try {
-            /** @var GestorUsuario|null $gestor */
+            /** @var \app\models\api\gestor\Gestor $gestor */
             $gestor = $this->getUserByToken();
-            
             if ($gestor) {
-                // 🔥 REMOVE DEVICE_TOKEN E DEVICE_ID AO LOGOUT
                 $gestor->device_token = null;
                 $gestor->device_id = null;
                 $gestor->save(false);
                 Yii::info("[GESTOR] Device ID e token removidos (logout)", __METHOD__);
-                
                 $gestor->invalidateTokens();
             }
             
@@ -251,18 +265,15 @@ class GestorUsuariosController extends ControllerBase
 
     /**
      * GET /api/gestor/gestor-usuarios/me
-     * Dados do gestor logado
      */
     public function actionMe()
     {
         try {
             $gestor = $this->getUserByToken();
-            
             return ApiResponse::success(
                 $this->formatarGestor($gestor, true),
                 'Dados do usuário recuperados com sucesso'
             );
-            
         } catch (\Exception $e) {
             return ApiResponse::error(
                 $e->getMessage(),
@@ -274,7 +285,6 @@ class GestorUsuariosController extends ControllerBase
 
     /**
      * POST /api/gestor/gestor-usuarios/create
-     * Cria um novo gestor
      */
     public function actionCreate()
     {
@@ -346,7 +356,6 @@ class GestorUsuariosController extends ControllerBase
             
             if ($gestor->save()) {
                 $token = $gestor->generateAccessToken();
-                
                 return ApiResponse::success(
                     $this->formatarGestor($gestor, true),
                     'Gestor cadastrado com sucesso',
@@ -403,10 +412,7 @@ class GestorUsuariosController extends ControllerBase
             $gestor->invalidateTokens();
             
             if ($gestor->save(false)) {
-                return ApiResponse::success(
-                    null,
-                    'Gestor removido com sucesso'
-                );
+                return ApiResponse::success(null, 'Gestor removido com sucesso');
             }
             
             return ApiResponse::error(
@@ -534,6 +540,7 @@ class GestorUsuariosController extends ControllerBase
             $gestor = GestorUsuario::findByRefreshToken($refreshToken);
             
             if (!$gestor) {
+                Yii::warning("[REFRESH] Refresh token inválido ou expirado: " . substr($refreshToken, 0, 10) . "...", __METHOD__);
                 return ApiResponse::error(
                     'Refresh token inválido ou expirado',
                     401,
@@ -554,6 +561,8 @@ class GestorUsuariosController extends ControllerBase
             $renovarRefresh = $request->post('renovar_refresh', false);
             $novoRefreshToken = $renovarRefresh ? $gestor->generateRefreshToken() : $refreshToken;
             
+            Yii::info("[REFRESH] Token renovado para gestor {$gestor->id}. Renovar refresh: " . ($renovarRefresh ? 'sim' : 'não'), __METHOD__);
+            
             return ApiResponse::success([
                 'access_token' => $novoAccessToken,
                 'refresh_token' => $novoRefreshToken,
@@ -562,9 +571,10 @@ class GestorUsuariosController extends ControllerBase
             ], 'Token renovado com sucesso');
             
         } catch (\Exception $e) {
+            Yii::error('[REFRESH] Exceção: ' . $e->getMessage(), __METHOD__);
             return ApiResponse::error(
-                $e->getMessage(),
-                $e->statusCode ?? 500,
+                'Erro ao renovar token',
+                500,
                 'refresh_error'
             );
         }
@@ -577,10 +587,7 @@ class GestorUsuariosController extends ControllerBase
     {
         try {
             $this->getUserByToken();
-            return ApiResponse::success(
-                ['valid' => true],
-                'Token válido'
-            );
+            return ApiResponse::success(['valid' => true], 'Token válido');
         } catch (\Exception $e) {
             return ApiResponse::error(
                 'Token inválido',
@@ -624,7 +631,6 @@ class GestorUsuariosController extends ControllerBase
 
     /**
      * POST /api/gestor/gestor-usuarios/device-token
-     * Salva o device_id e device_token do gestor
      */
     public function actionDeviceToken()
     {
@@ -636,7 +642,7 @@ class GestorUsuariosController extends ControllerBase
             if (empty($deviceToken) && empty($deviceId)) {
                 return ApiResponse::error('device_token ou device_id é obrigatório', 400);
             }
-            /** @var GestorUsuario|null $gestor */
+            /** @var \app\models\api\gestor\Gestor $gestor */
             $gestor = $this->getUserByToken();
             if (!$gestor) {
                 return ApiResponse::error('Gestor não autenticado', 401);
@@ -645,7 +651,6 @@ class GestorUsuariosController extends ControllerBase
             if (!empty($deviceId)) {
                 $gestor->device_id = $deviceId;
             }
-
             if (!empty($deviceToken)) {
                 $gestor->device_token = $deviceToken;
             }
@@ -665,12 +670,11 @@ class GestorUsuariosController extends ControllerBase
 
     /**
      * DELETE /api/gestor/gestor-usuarios/device-token
-     * Remove o device token (logout)
      */
     public function actionDeleteDeviceToken()
     {
         try {
-            /** @var GestorUsuario|null $gestor */
+            /** @var \app\models\api\gestor\Gestor $gestor */        
             $gestor = $this->getUserByToken();
             if (!$gestor) {
                 return ApiResponse::error('Gestor não autenticado', 401);
@@ -691,7 +695,6 @@ class GestorUsuariosController extends ControllerBase
 
     // ==================== MÉTODOS AUXILIARES ====================
 
-    /** @var GestorUsuario|null $gestor */
     private function findModel($id)
     {
         $gestor = GestorUsuario::find()
@@ -700,9 +703,8 @@ class GestorUsuariosController extends ControllerBase
             ->one();
             
         if (!$gestor) {
-            throw new \yii\web\NotFoundHttpException('Gestor não encontrado');
+            throw new NotFoundHttpException('Gestor não encontrado');
         }
-        
         return $gestor;
     }
 
@@ -740,18 +742,86 @@ class GestorUsuariosController extends ControllerBase
             GestorUsuario::STATUS_INATIVO => 'Inativo',
             GestorUsuario::STATUS_BLOQUEADO => 'Bloqueado',
         ];
-        
         return $labels[$status] ?? 'Desconhecido';
     }
 
     private function popularGestor($gestor, $dados)
     {
         $camposPermitidos = ['nome', 'email', 'cpf', 'telefone', 'nivel', 'status'];
-        
         foreach ($camposPermitidos as $campo) {
             if (isset($dados[$campo])) {
                 $gestor->$campo = $dados[$campo];
             }
         }
+    }
+
+    // ==================== FILTER OPTIONS ====================
+
+    /**
+     * Gera as opções de filtro (com cache)
+     */
+    private function generateFilterOptions()
+    {
+        $cacheKey = 'gestores_filter_options_v2';
+        
+        $dependency = new DbDependency([
+            'sql' => 'SELECT MAX(atualizado_em) FROM gestor_usuario WHERE deletado_em IS NULL',
+        ]);
+
+        return Yii::$app->cache->getOrSet(
+            $cacheKey,
+            function () {
+                return $this->buildFilterOptions();
+            },
+            3600,
+            $dependency
+        );
+    }
+
+    /**
+     * Constrói as opções de filtro (sem cache)
+     */
+    private function buildFilterOptions()
+    {
+        // Contagem por nível
+        $niveis = ['admin', 'comercial', 'suporte', 'financeiro'];
+        $nivelOptions = [];
+        foreach ($niveis as $nivel) {
+            $count = GestorUsuario::find()
+                ->where(['nivel' => $nivel, 'deletado_em' => null])
+                ->count();
+            if ($count > 0) {
+                $nivelOptions[] = [
+                    'value' => $nivel,
+                    'label' => ucfirst($nivel),
+                    'count' => (int)$count,
+                ];
+            }
+        }
+
+        // Contagem por status
+        $statusOptions = [];
+        $statusMap = [
+            1 => 'Ativo',
+            0 => 'Inativo',
+            2 => 'Bloqueado',
+        ];
+        foreach ($statusMap as $value => $label) {
+            $count = GestorUsuario::find()
+                ->where(['status' => $value, 'deletado_em' => null])
+                ->count();
+            if ($count > 0) {
+                $statusOptions[] = [
+                    'value' => (string)$value,
+                    'label' => $label,
+                    'count' => (int)$count,
+                ];
+            }
+        }
+
+        return [
+            'nivel' => $nivelOptions,
+            'status' => $statusOptions,
+        ];
     }
 }

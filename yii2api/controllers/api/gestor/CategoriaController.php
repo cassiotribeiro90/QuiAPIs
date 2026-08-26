@@ -8,6 +8,7 @@ use app\components\ApiResponse;
 use app\models\api\gestor\Categoria;
 use app\controllers\api\gestor\ControllerBase;
 use yii\web\NotFoundHttpException;
+use yii\caching\DbDependency;
 
 class CategoriaController extends ControllerBase
 {
@@ -15,7 +16,7 @@ class CategoriaController extends ControllerBase
 
     /**
      * GET /api/gestor/categorias
-     * Lista todas as categorias com paginação e filtros
+     * Lista todas as categorias com paginação, filtros e opções de filtro
      */
     public function actionIndex()
     {
@@ -27,15 +28,13 @@ class CategoriaController extends ControllerBase
             $query = Categoria::find()
                 ->orderBy(['ordem' => SORT_ASC, 'nome' => SORT_ASC]);
 
-            // Filtros
+            // Filtros (usando 'ativo', não 'deletado_em')
             if ($request->get('ativo') !== null) {
-                $query->andWhere(['ativo' => $request->get('ativo')]);
+                $query->andWhere(['ativo' => (int)$request->get('ativo')]);
             }
-
             if ($request->get('destaque') !== null) {
-                $query->andWhere(['destaque' => $request->get('destaque')]);
+                $query->andWhere(['destaque' => (int)$request->get('destaque')]);
             }
-
             if ($request->get('search')) {
                 $search = $request->get('search');
                 $query->andWhere([
@@ -57,6 +56,9 @@ class CategoriaController extends ControllerBase
                 return $this->formatarCategoria($categoria);
             }, $categorias);
 
+            // 🔥 FILTER OPTIONS (com cache)
+            $filterOptions = $this->generateFilterOptions();
+
             return ApiResponse::success([
                 'items' => $data,
                 'pagination' => [
@@ -64,7 +66,8 @@ class CategoriaController extends ControllerBase
                     'page' => $page,
                     'per_page' => $perPage,
                     'total_pages' => ceil($total / $perPage)
-                ]
+                ],
+                'filter_options' => $filterOptions,
             ], 'Lista de categorias recuperada com sucesso');
 
         } catch (\Exception $e) {
@@ -78,7 +81,6 @@ class CategoriaController extends ControllerBase
 
     /**
      * GET /api/gestor/categorias/<id>
-     * Visualiza uma categoria específica
      */
     public function actionView($id)
     {
@@ -102,7 +104,6 @@ class CategoriaController extends ControllerBase
 
     /**
      * POST /api/gestor/categorias/create
-     * Cria uma nova categoria
      */
     public function actionCreate()
     {
@@ -111,7 +112,6 @@ class CategoriaController extends ControllerBase
 
             $dados = Yii::$app->request->post();
 
-            // Valida campos obrigatórios
             if (empty($dados['nome'])) {
                 return ApiResponse::error(
                     'Nome é obrigatório',
@@ -121,7 +121,6 @@ class CategoriaController extends ControllerBase
                 );
             }
 
-            // Verifica duplicidade
             if (Categoria::find()->where(['nome' => $dados['nome']])->exists()) {
                 return ApiResponse::error(
                     'Já existe uma categoria com este nome',
@@ -160,7 +159,6 @@ class CategoriaController extends ControllerBase
 
     /**
      * PUT /api/gestor/categorias/update/<id>
-     * Atualiza uma categoria
      */
     public function actionUpdate($id)
     {
@@ -170,13 +168,11 @@ class CategoriaController extends ControllerBase
 
             $dados = Yii::$app->request->post();
 
-            // Se nome foi alterado, verificar duplicidade
             if (isset($dados['nome']) && $dados['nome'] !== $categoria->nome) {
                 $existe = Categoria::find()
                     ->where(['nome' => $dados['nome']])
                     ->andWhere(['!=', 'id', $id])
                     ->exists();
-                    
                 if ($existe) {
                     return ApiResponse::error(
                         'Já existe uma categoria com este nome',
@@ -214,14 +210,12 @@ class CategoriaController extends ControllerBase
 
     /**
      * DELETE /api/gestor/categorias/delete/<id>
-     * Remove uma categoria (verifica se tem subcategorias vinculadas)
      */
     public function actionDelete($id)
     {
         try {
             $usuarioLogado = $this->getUserByToken();
 
-            // Apenas admin pode deletar
             if ($usuarioLogado->nivel !== 'admin') {
                 return ApiResponse::error(
                     'Apenas administradores podem remover categorias',
@@ -241,7 +235,9 @@ class CategoriaController extends ControllerBase
                 );
             }
 
-            if ($categoria->delete()) {
+            // Soft delete usando 'ativo' = 0 em vez de deletado_em
+            $categoria->ativo = 0;
+            if ($categoria->save()) {
                 return ApiResponse::success(null, 'Categoria removida com sucesso');
             }
 
@@ -262,7 +258,6 @@ class CategoriaController extends ControllerBase
 
     /**
      * GET /api/gestor/categorias/options
-     * Retorna opções para selects (categorias simplificadas)
      */
     public function actionOptions()
     {
@@ -289,9 +284,8 @@ class CategoriaController extends ControllerBase
         }
     }
 
-    /**
-     * Busca model pelo ID
-     */
+    // ==================== MÉTODOS AUXILIARES ====================
+
     private function findModel($id)
     {
         $categoria = Categoria::findOne($id);
@@ -301,9 +295,6 @@ class CategoriaController extends ControllerBase
         return $categoria;
     }
 
-    /**
-     * Formata dados da categoria para resposta
-     */
     private function formatarCategoria($categoria, $detalhado = false)
     {
         $dados = [
@@ -330,17 +321,72 @@ class CategoriaController extends ControllerBase
         return $dados;
     }
 
-    /**
-     * Popula dados da categoria
-     */
     private function popularCategoria($categoria, $dados)
     {
         $campos = ['nome', 'descricao', 'icone', 'imagem', 'cor', 'ordem', 'ativo', 'destaque'];
-        
         foreach ($campos as $campo) {
             if (isset($dados[$campo])) {
                 $categoria->$campo = $dados[$campo];
             }
         }
+    }
+
+    /**
+     * 🔥 Gera as opções de filtro (com cache)
+     */
+    private function generateFilterOptions()
+    {
+        $cacheKey = 'categorias_filter_options_v2';
+        
+        $dependency = new DbDependency([
+            'sql' => 'SELECT MAX(atualizado_em) FROM categoria',
+        ]);
+
+        return Yii::$app->cache->getOrSet(
+            $cacheKey,
+            function () {
+                return $this->buildFilterOptions();
+            },
+            3600,
+            $dependency
+        );
+    }
+
+    /**
+     * 🔥 Constrói as opções de filtro (sem cache)
+     * Usa 'ativo' em vez de 'deletado_em'
+     */
+    private function buildFilterOptions()
+    {
+        // Contagem de categorias ativas e inativas
+        $ativoCount = Categoria::find()->where(['ativo' => 1])->count();
+        $inativoCount = Categoria::find()->where(['ativo' => 0])->count();
+
+        // Destaque (apenas ativas)
+        $destaqueCount = Categoria::find()
+            ->where(['ativo' => 1, 'destaque' => 1])
+            ->count();
+
+        return [
+            'ativo' => [
+                [
+                    'value' => '1',
+                    'label' => 'Ativos',
+                    'count' => (int)$ativoCount,
+                ],
+                [
+                    'value' => '0',
+                    'label' => 'Inativos',
+                    'count' => (int)$inativoCount,
+                ],
+            ],
+            'destaque' => [
+                [
+                    'value' => '1',
+                    'label' => 'Destaque',
+                    'count' => (int)$destaqueCount,
+                ],
+            ],
+        ];
     }
 }

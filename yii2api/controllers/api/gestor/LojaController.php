@@ -37,8 +37,8 @@ class LojaController extends ControllerBase
                 }
             }
 
-            if ($request->get('categoria')) {
-                $categoriaList = explode(',', $request->get('categoria'));
+            if ($request->get('categorias')) {
+                $categoriaList = explode(',', $request->get('categorias'));
                 $categoriaList = array_map('trim', $categoriaList);
                 $categoriaList = array_filter($categoriaList);
                 if (!empty($categoriaList)) {
@@ -131,7 +131,7 @@ class LojaController extends ControllerBase
     {
         try {
             $this->getUserByToken();
-
+            /** @var \app\models\api\gestor\Gestor $gestor */
             $dados = Yii::$app->request->post();
 
             // Valida campos obrigatórios
