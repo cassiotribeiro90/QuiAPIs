@@ -32,21 +32,33 @@ class StoreUsuarioController extends ControllerBase
             $query = LojistaUsuario::find()
                 ->orderBy(['criado_em' => SORT_DESC]);
             
-            // Filtros
+            // ============================================================
+            // Filtro por loja (CORRIGIDO)
+            // ============================================================
             if ($request->get('loja_id')) {
                 $lojaId = (int)$request->get('loja_id');
-                $query->joinWith('lojasRelacionadas sul')
-                      ->andWhere(['sul.loja_id' => $lojaId]);
+                // 🔥 Usa o nome correto da tabela principal: store_usuario.id
+                $query->innerJoin('store_usuario_loja sul', 'sul.usuario_id = store_usuario.id')
+                    ->andWhere(['sul.loja_id' => $lojaId]);
             }
             
+            // ============================================================
+            // Filtro por função
+            // ============================================================
             if ($request->get('funcao')) {
                 $query->andWhere(['funcao' => $request->get('funcao')]);
             }
             
+            // ============================================================
+            // Filtro por status
+            // ============================================================
             if ($request->get('status') !== null) {
                 $query->andWhere(['status' => (int)$request->get('status')]);
             }
             
+            // ============================================================
+            // Filtro por busca (search) - CORRIGIDO
+            // ============================================================
             if ($request->get('search')) {
                 $search = $request->get('search');
                 $query->andWhere([
@@ -57,7 +69,9 @@ class StoreUsuarioController extends ControllerBase
                 ]);
             }
             
+            // ============================================================
             // Paginação
+            // ============================================================
             $page = (int)$request->get('page', 1);
             $perPage = (int)$request->get('per_page', 20);
             $offset = ($page - 1) * $perPage;
@@ -69,7 +83,9 @@ class StoreUsuarioController extends ControllerBase
                 return $this->formatarLojista($lojista);
             }, $lojistas);
             
-            // 🔥 FILTER OPTIONS (NOVO)
+            // ============================================================
+            // Filter Options (com cache)
+            // ============================================================
             $filterOptions = $this->generateFilterOptions();
             
             return ApiResponse::success([
@@ -88,6 +104,7 @@ class StoreUsuarioController extends ControllerBase
         } catch (NotFoundHttpException $e) {
             return ApiResponse::error($e->getMessage(), 404, 'not_found');
         } catch (\Exception $e) {
+            Yii::error('[StoreUsuarioController] Erro: ' . $e->getMessage(), __METHOD__);
             return ApiResponse::error(
                 $e->getMessage(),
                 500,

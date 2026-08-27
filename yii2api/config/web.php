@@ -300,6 +300,20 @@ $config = [
                 'api/gestor/store-usuarios/lojas-options' => 'api/gestor/store-usuario/lojas-options',
 
 
+                // Pedidos
+                'api/gestor/pedidos' => 'api/gestor/pedido/index',
+                'api/gestor/pedidos/<id:\d+>' => 'api/gestor/pedido/view',
+                'api/gestor/pedidos/update/<id:\d+>' => 'api/gestor/pedido/update',
+                'api/gestor/pedidos/delete/<id:\d+>' => 'api/gestor/pedido/delete',
+                'api/gestor/pedidos/options' => 'api/gestor/pedido/options',
+
+                // Clientes
+                'api/gestor/clientes/<id:\d+>' => 'api/gestor/clientes/view',
+                'api/gestor/clientes' => 'api/gestor/clientes/index',
+                'api/gestor/clientes/update/<id:\d+>' => 'api/gestor/clientes/update',
+                'api/gestor/clientes/options' => 'api/gestor/clientes/options',
+
+
                 // LOJISTA APP ---------------------------------------------------------------------------
                 // 🔥 ROTAS DE AUTENTICAÇÃO DO LOJISTA
                 'POST api/lojista/auth-lojista/phone' => 'api/lojista/auth-lojista/phone',
@@ -308,6 +322,23 @@ $config = [
                 'POST api/lojista/auth-lojista/refresh-token' => 'api/lojista/auth-lojista/refresh-token',
                 'POST api/lojista/auth-lojista/logout' => 'api/lojista/auth-lojista/logout',
                 'POST api/lojista/auth-lojista/create' => 'api/lojista/auth-lojista/create',
+
+                // 🔥 NOVA ROTA: DELETE para remover device token
+                'DELETE api/lojista/auth-lojista/device-token' => 'api/lojista/auth-lojista/delete-device-token',
+
+                // 🔥 ROTA PARA SALVAR DEVICE TOKEN (já deve existir)
+                'POST api/lojista/auth-lojista/device-token' => 'api/lojista/auth-lojista/device-token',
+
+                // 🔥 ROTAS DE PEDIDOS DO LOJISTA
+                'GET api/lojista/lojista-pedido' => 'api/lojista/lojista-pedido/index',
+                'GET api/lojista/lojista-pedido/ativos' => 'api/lojista/lojista-pedido/ativos',
+                'GET api/lojista/lojista-pedido/view' => 'api/lojista/lojista-pedido/view',
+                'POST api/lojista/lojista-pedido/aceitar' => 'api/lojista/lojista-pedido/aceitar',
+                'POST api/lojista/lojista-pedido/recusar' => 'api/lojista/lojista-pedido/recusar',
+                'POST api/lojista/lojista-pedido/atualizar-status' => 'api/lojista/lojista-pedido/atualizar-status',
+                'POST api/lojista/lojista-pedido/cancelar' => 'api/lojista/lojista-pedido/cancelar',
+                'GET api/lojista/lojista-pedido/status-count' => 'api/lojista/lojista-pedido/status-count',
+                'GET api/lojista/lojista-pedido/historico' => 'api/lojista/lojista-pedido/historico',
                 
 
                 // ==================== ROTAS DO LOJISTA - PEDIDOS ====================

@@ -1,3 +1,36 @@
+# 🔥 FIREBASE SECRETS
+config/firebase-credentials.json
+config/firebase-credentials-example.json
+
+# 🔥 ENVIRONMENT
+.env
+.env.local
+.env.production
+
+# 🔥 LOGS
+runtime/logs/*.log
+*.log
+
+# 🔥 CACHE
+runtime/cache/*
+runtime/sessions/*
+
+# 🔥 IDE
+.idea/
+.vscode/
+*.iml
+.DS_Store
+
+# 🔥 COMPOSER
+composer.phar
+vendor/
+composer.lock
+
+# 🔥 UPLOADS
+web/uploads/*
+!web/uploads/.gitkeep
+
+
 assets/*
 !assets/.gitignore
 protected/runtime/*

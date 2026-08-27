@@ -561,6 +561,39 @@ class AuthController extends AppControllerBase
     }
 
     /**
+     * POST /api/app/auth/device-token
+     * Atualiza o device_token (FCM) do usuário logado
+     */
+    public function actionDeviceToken()
+    {
+        $request = Yii::$app->request;
+        $deviceToken = $request->getBodyParam('device_token');
+        $deviceId = $request->getBodyParam('device_id') ?? $request->getHeaders()->get('X-Device-Id');
+
+        $usuario = $this->getUserByToken();
+
+        if (empty($deviceToken)) {
+            return ApiResponse::error('device_token é obrigatório', 400);
+        }
+
+        if (!empty($deviceId)) {
+            $usuario->device_id = $deviceId;
+        }
+
+        $usuario->device_token = $deviceToken;
+
+        if ($usuario->save(false)) {
+            Yii::info("✅ Device token atualizado para o usuário ID {$usuario->id}", __METHOD__);
+            return ApiResponse::success([
+                'device_id' => $usuario->device_id,
+                'device_token' => $usuario->device_token,
+            ], 'Token atualizado com sucesso');
+        }
+
+        return ApiResponse::error('Erro ao salvar token', 500);
+    }
+
+    /**
      * GET /api/app/auth/me
      */
     public function actionMe()

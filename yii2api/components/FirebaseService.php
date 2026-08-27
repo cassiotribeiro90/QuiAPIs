@@ -87,20 +87,17 @@ class FirebaseService
     }
     
     /**
-     * Envia notificação de pedido com payload intermediário
+     * Envia notificação de pedido para LOJISTA (app QuiManda)
      * 
      * @param string $deviceToken Token FCM do dispositivo
-     * @param object $pedido Objeto do pedido (deve ter os campos: id, loja_id, cliente_nome, status, total, itens)
+     * @param object $pedido Objeto do pedido
      * @param string $type Tipo da notificação (novo_pedido, status_update, etc)
      * @return mixed Resultado do envio ou null em caso de erro
      */
     public function sendPedidoNotification($deviceToken, $pedido, $type = 'novo_pedido')
     {
         try {
-            $payload = $this->buildIntermediaryPayload($pedido, $type);
-
-            // 🔥 LOG DO PAYLOAD (vai mostrar qual campo é array)
-            Yii::info('[FIREBASE] Payload para depuração: ' . print_r($payload, true), __METHOD__);
+            $payload = $this->buildIntermediaryPayload($pedido, $type, 'lojista');
 
             $notification = Notification::create(
                 $payload['notification']['title'],
@@ -113,10 +110,73 @@ class FirebaseService
 
             $result = $this->_messaging->send($message);
 
-            Yii::info('[FIREBASE] Notificação enviada para pedido ' . $pedido->id, __METHOD__);
+            Yii::info('[FIREBASE] Notificação para lojista enviada para pedido ' . $pedido->id, __METHOD__);
             return $result;
         } catch (Exception $e) {
             Yii::error('[FIREBASE] Erro: ' . $e->getMessage() . ' | ' . $e->getFile() . ':' . $e->getLine(), __METHOD__);
+            return null;
+        }
+    }
+
+    /**
+     * NOVO: Envia notificação de pedido para CLIENTE (app QuiPede)
+     * 
+     * @param string $deviceToken Token FCM do dispositivo
+     * @param object $pedido Objeto do pedido
+     * @param string $type Tipo da notificação (novo_pedido, status_update, etc)
+     * @return mixed Resultado do envio ou null em caso de erro
+     */
+    public function sendClientePedidoNotification($deviceToken, $pedido, $type = 'novo_pedido')
+    {
+        try {
+            $payload = $this->buildIntermediaryPayload($pedido, $type, 'cliente');
+
+            // 🔥 Configurações para Android (com TAG para substituir)
+            $androidConfig = [
+                'collapseKey' => 'pedido_' . $pedido->id,
+                'priority' => 'high',
+                'notification' => [
+                    'tag' => 'pedido_' . $pedido->id, // 🔥 SUBSTITUI a notificação
+                    'sound' => $payload['notification']['sound'] ?? 'default',
+                ],
+            ];
+
+            // 🔥 Configurações para iOS
+            $apnsConfig = [
+                'headers' => [
+                    'apns-collapse-id' => 'pedido_' . $pedido->id,
+                ],
+                'payload' => [
+                    'aps' => [
+                        'sound' => $payload['notification']['sound'] ?? 'default',
+                        'badge' => 1,
+                    ],
+                ],
+            ];
+
+            // 🔥 Se o som for null, remover para não tocar
+            if ($payload['notification']['sound'] === null) {
+                unset($androidConfig['notification']['sound']);
+                unset($apnsConfig['payload']['aps']['sound']);
+            }
+
+            $notification = Notification::create(
+                $payload['notification']['title'],
+                $payload['notification']['body']
+            );
+
+            $message = CloudMessage::withTarget('token', $deviceToken)
+                ->withNotification($notification)
+                ->withData($payload['data'])
+                ->withAndroidConfig($androidConfig)
+                ->withApnsConfig($apnsConfig);
+
+            $result = $this->_messaging->send($message);
+            
+            Yii::info('[FIREBASE] Notificação para cliente enviada para pedido ' . $pedido->id, __METHOD__);
+            return $result;
+        } catch (Exception $e) {
+            Yii::error('[FIREBASE] Erro ao enviar: ' . $e->getMessage(), __METHOD__);
             return null;
         }
     }
@@ -126,9 +186,10 @@ class FirebaseService
      * 
      * @param object $pedido
      * @param string $type
+     * @param string $destino 'lojista' ou 'cliente'
      * @return array
      */
-    private function buildIntermediaryPayload($pedido, $type)
+    private function buildIntermediaryPayload($pedido, $type, $destino = 'lojista')
     {
         // Títulos dinâmicos por status
         $statusLabels = [
@@ -165,45 +226,71 @@ class FirebaseService
             ? number_format((float) $pedido->total, 2, ',', '.') 
             : '0,00';
 
-        $body = 'Cliente: ' . $clienteNome . ' - ' . $itemCount . ' itens';
+        // Construção do corpo da notificação (diferenciado por destino)
+        if ($destino === 'cliente') {
+            $body = 'Seu pedido #' . ($pedido->codigo ?? $pedido->id) . ' está ' . strtolower($statusLabels[$status] ?? 'atualizado');
+            // Para cliente, adiciona o nome da loja se disponível
+            if (isset($pedido->loja) && is_object($pedido->loja)) {
+                $body .= ' na ' . $pedido->loja->nome;
+            }
+        } else {
+            // Para lojista
+            $body = 'Cliente: ' . $clienteNome . ' - ' . $itemCount . ' itens';
+        }
 
-        // Construir ações (array de arrays)
+        // Construir ações (diferentes para cliente e lojista)
         $actions = [];
-        if ($type === 'novo_pedido') {
+        if ($destino === 'cliente') {
+            // Cliente: só ver detalhes
             $actions = [
                 [
                     'id' => 'view',
                     'title' => 'Ver Pedido',
                     'type' => 'navigate',
                     'destino' => "/pedido/{$pedido->id}",
-                ],
-                [
-                    'id' => 'aceitar',
-                    'title' => '✅ Aceitar',
-                    'type' => 'api',
-                    'api_endpoint' => "/api/lojista/pedidos/{$pedido->id}/aceitar",
-                ],
-                [
-                    'id' => 'recusar',
-                    'title' => '❌ Recusar',
-                    'type' => 'api',
-                    'api_endpoint' => "/api/lojista/pedidos/{$pedido->id}/recusar",
                 ],
             ];
         } else {
-            $actions = [
-                [
-                    'id' => 'view',
-                    'title' => 'Ver Pedido',
-                    'type' => 'navigate',
-                    'destino' => "/pedido/{$pedido->id}",
-                ],
-            ];
+            // Lojista: ações completas para novo pedido, ou só ver para atualizações
+            if ($type === 'novo_pedido') {
+                $actions = [
+                    [
+                        'id' => 'view',
+                        'title' => 'Ver Pedido',
+                        'type' => 'navigate',
+                        'destino' => "/pedido/{$pedido->id}",
+                    ],
+                    [
+                        'id' => 'aceitar',
+                        'title' => '✅ Aceitar',
+                        'type' => 'api',
+                        'api_endpoint' => "/api/lojista/pedidos/{$pedido->id}/aceitar",
+                    ],
+                    [
+                        'id' => 'recusar',
+                        'title' => '❌ Recusar',
+                        'type' => 'api',
+                        'api_endpoint' => "/api/lojista/pedidos/{$pedido->id}/recusar",
+                    ],
+                ];
+            } else {
+                $actions = [
+                    [
+                        'id' => 'view',
+                        'title' => 'Ver Pedido',
+                        'type' => 'navigate',
+                        'destino' => "/pedido/{$pedido->id}",
+                    ],
+                ];
+            }
         }
 
-        // 🔥 SERIALIZAR ARRAYS PARA JSON STRING
+        // Serializar arrays para JSON string
         $actionsJson = json_encode($actions, JSON_UNESCAPED_UNICODE);
         $extrasJson = '{}';
+
+        // Screen padrão para cliente e lojista
+        $screen = ($destino === 'cliente') ? '/pedido' : '/pedidos';
 
         return [
             'notification' => [
@@ -221,9 +308,10 @@ class FirebaseService
                 'cliente_nome' => (string) $clienteNome,
                 'status' => (string) $status,
                 'total' => (string) $total,
-                'screen' => '/pedidos',
-                'actions' => $actionsJson,  // 🔥 JSON string
-                'extras' => $extrasJson,    // 🔥 JSON string
+                'screen' => $screen,
+                'destino' => $destino, // útil para o app decidir comportamento
+                'actions' => $actionsJson,
+                'extras' => $extrasJson,
             ],
         ];
     }

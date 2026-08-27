@@ -4,6 +4,7 @@ namespace app\controllers\api\lojista;
 
 use Yii;
 use app\components\ApiResponse;
+use app\components\FirebaseService;
 use app\models\api\lojista\LojistaUsuarioLoja;
 use app\models\api\app\Pedido;
 use app\models\api\lojista\PedidoStatusHistorico;
@@ -297,7 +298,10 @@ class LojistaPedidoController extends LojistaControllerBase
 
             $this->salvarHistorico($pedido->id, $lojistaId, 'novo', 'preparando');
 
-            // 🔥 RETORNA OS DADOS ATUALIZADOS
+            // 🔥 ENVIA PUSH PARA O CLIENTE
+            $this->enviarPushCliente($pedido);
+
+            // RETORNA OS DADOS ATUALIZADOS
             $pedidosAtivos = $this->getPedidosAtivos($lojaId);
 
             return ApiResponse::success([
@@ -360,7 +364,10 @@ class LojistaPedidoController extends LojistaControllerBase
 
             $this->salvarHistorico($pedido->id, $lojistaId, 'novo', 'cancelado', $motivo, $motivoCodigo);
 
-            // 🔥 RETORNA OS DADOS ATUALIZADOS
+            // 🔥 ENVIA PUSH PARA O CLIENTE
+            $this->enviarPushCliente($pedido);
+
+            // RETORNA OS DADOS ATUALIZADOS
             $pedidosAtivos = $this->getPedidosAtivos($lojaId);
 
             return ApiResponse::success([
@@ -445,7 +452,10 @@ class LojistaPedidoController extends LojistaControllerBase
 
             $this->salvarHistorico($pedido->id, $lojistaId, $statusAnterior, $novoStatus, $motivo);
 
-            // 🔥 RETORNA OS DADOS ATUALIZADOS
+            // 🔥 ENVIA PUSH PARA O CLIENTE
+            $this->enviarPushCliente($pedido);
+
+            // RETORNA OS DADOS ATUALIZADOS
             $pedidosAtivos = $this->getPedidosAtivos($lojaId);
 
             return ApiResponse::success([
@@ -514,7 +524,10 @@ class LojistaPedidoController extends LojistaControllerBase
 
             $this->salvarHistorico($pedido->id, $lojistaId, $statusAnterior, 'cancelado', $motivo);
 
-            // 🔥 RETORNA OS DADOS ATUALIZADOS
+            // 🔥 ENVIA PUSH PARA O CLIENTE
+            $this->enviarPushCliente($pedido);
+
+            // RETORNA OS DADOS ATUALIZADOS
             $pedidosAtivos = $this->getPedidosAtivos($lojaId);
 
             return ApiResponse::success([
@@ -757,6 +770,50 @@ class LojistaPedidoController extends LojistaControllerBase
             return (int)$count;
         } catch (\Exception $e) {
             return 0;
+        }
+    }
+
+    // ==================== NOVO MÉTODO PARA ENVIO DE PUSH AO CLIENTE ====================
+
+    /**
+     * Envia notificação push para o cliente sobre atualização do pedido
+     *
+     * @param Pedido $pedido
+     */
+    private function enviarPushCliente($pedido)
+    {
+        // Carrega o pedido com o usuário (para garantir que temos o device_token)
+        $pedidoCompleto = Pedido::find()
+            ->with('usuario')
+            ->where(['id' => $pedido->id])
+            ->one();
+
+        if (!$pedidoCompleto || !$pedidoCompleto->usuario) {
+            Yii::info("[PUSH] Pedido {$pedido->id} sem usuário associado", __METHOD__);
+            return;
+        }
+
+        $deviceToken = $pedidoCompleto->usuario->device_token;
+        if (empty($deviceToken)) {
+            Yii::info("[PUSH] Cliente do pedido {$pedido->id} não possui device_token", __METHOD__);
+            return;
+        }
+
+        try {
+            $firebase = FirebaseService::getInstance();
+            $result = $firebase->sendClientePedidoNotification(
+                $deviceToken,
+                $pedidoCompleto,
+                'status_update' // tipo que indica mudança de status
+            );
+
+            if ($result) {
+                Yii::info("[PUSH] Notificação enviada para cliente do pedido {$pedido->id}", __METHOD__);
+            } else {
+                Yii::warning("[PUSH] Falha ao enviar para cliente do pedido {$pedido->id}", __METHOD__);
+            }
+        } catch (\Exception $e) {
+            Yii::error("[PUSH] Erro ao enviar push para cliente: " . $e->getMessage(), __METHOD__);
         }
     }
 }

@@ -36,6 +36,8 @@ class LojaController extends AppControllerBase
      * Lista lojas disponíveis com paginação, filtros e ordenação.
      * A busca (search) considera nome, descrição e categoria,
      * com correspondência aproximada (Levenshtein) caso a busca exata não retorne resultados.
+     * 
+     * 🔥 ALTERAÇÃO: Retorna apenas lojas que possuem pelo menos um produto ativo.
      */
     public function actionIndex()
     {
@@ -47,26 +49,32 @@ class LojaController extends AppControllerBase
         $search = $request->get('search', '');
 
         // ===== QUERY BASE =====
+        // 🔥 ADICIONADO: EXISTS para garantir que a loja tenha pelo menos um produto ativo
         $query = Loja::find()
-            ->where(['deletado_em' => null, 'status' => 'ativo']);
+            ->where(['loja.deletado_em' => null, 'loja.status' => 'ativo'])
+            ->andWhere(['exists', (new \yii\db\Query())
+                ->from('produto')
+                ->where('produto.loja_id = loja.id')
+                ->andWhere(['produto.deletado_em' => null])
+                ->andWhere(['produto.disponivel' => 1]) // ou 'produto.ativo' => 1, dependendo do seu modelo
+            ]);
 
         // ===== FILTROS FIXOS =====
         if ($request->get('categoria')) {
-            $query->andWhere(['categoria' => $request->get('categoria')]);
+            $query->andWhere(['loja.categoria' => $request->get('categoria')]);
         }
 
         if ($request->get('cidade')) {
-            $query->andWhere(['cidade' => $request->get('cidade')]);
+            $query->andWhere(['loja.cidade' => $request->get('cidade')]);
         }
 
         // ===== BUSCA EXATA PRIMEIRO =====
-        $usarBuscaAproximada = false;
         if (!empty($search) && trim($search) !== '') {
             $query->andWhere([
                 'or',
-                ['like', 'nome', $search],
-                ['like', 'descricao', $search],
-                ['like', 'categoria', $search],
+                ['like', 'loja.nome', $search],
+                ['like', 'loja.descricao', $search],
+                ['like', 'loja.categoria', $search],
             ]);
         }
 
@@ -77,19 +85,19 @@ class LojaController extends AppControllerBase
             $query->orderBy(['distancia' => SORT_ASC]);
         } elseif ($orderBy === 'tempo_entrega') {
             $query->orderBy([
-                '((tempo_entrega_min + tempo_entrega_max) / 2)' => SORT_ASC,
+                '((loja.tempo_entrega_min + loja.tempo_entrega_max) / 2)' => SORT_ASC,
             ]);
         } elseif ($orderBy === 'taxa_entrega') {
-            $query->orderBy(['taxa_entrega' => SORT_ASC]);
+            $query->orderBy(['loja.taxa_entrega' => SORT_ASC]);
         } elseif ($orderBy === 'nota') {
             $query->orderBy([
-                'nota_media' => SORT_DESC,
-                'total_avaliacoes' => SORT_DESC,
+                'loja.nota_media' => SORT_DESC,
+                'loja.total_avaliacoes' => SORT_DESC,
             ]);
         } else {
             $query->orderBy([
-                'destaque' => SORT_DESC,
-                'nota_media' => SORT_DESC,
+                'loja.destaque' => SORT_DESC,
+                'loja.nota_media' => SORT_DESC,
             ]);
         }
 
@@ -103,15 +111,21 @@ class LojaController extends AppControllerBase
 
         // Se não encontrou, tenta busca aproximada (Levenshtein)
         if (empty($lojas) && !empty($search) && trim($search) !== '') {
-            // Cria nova query sem filtro de busca
+            // 🔥 Cria nova query com o mesmo filtro de produtos
             $queryAprox = Loja::find()
-                ->where(['deletado_em' => null, 'status' => 'ativo']);
+                ->where(['loja.deletado_em' => null, 'loja.status' => 'ativo'])
+                ->andWhere(['exists', (new \yii\db\Query())
+                    ->from('produto')
+                    ->where('produto.loja_id = loja.id')
+                    ->andWhere(['produto.deletado_em' => null])
+                    ->andWhere(['produto.disponivel' => 1])
+                ]);
 
             if ($request->get('categoria')) {
-                $queryAprox->andWhere(['categoria' => $request->get('categoria')]);
+                $queryAprox->andWhere(['loja.categoria' => $request->get('categoria')]);
             }
             if ($request->get('cidade')) {
-                $queryAprox->andWhere(['cidade' => $request->get('cidade')]);
+                $queryAprox->andWhere(['loja.cidade' => $request->get('cidade')]);
             }
 
             // Aplica mesma ordenação
@@ -121,19 +135,19 @@ class LojaController extends AppControllerBase
                 $queryAprox->orderBy(['distancia' => SORT_ASC]);
             } elseif ($orderBy === 'tempo_entrega') {
                 $queryAprox->orderBy([
-                    '((tempo_entrega_min + tempo_entrega_max) / 2)' => SORT_ASC,
+                    '((loja.tempo_entrega_min + loja.tempo_entrega_max) / 2)' => SORT_ASC,
                 ]);
             } elseif ($orderBy === 'taxa_entrega') {
-                $queryAprox->orderBy(['taxa_entrega' => SORT_ASC]);
+                $queryAprox->orderBy(['loja.taxa_entrega' => SORT_ASC]);
             } elseif ($orderBy === 'nota') {
                 $queryAprox->orderBy([
-                    'nota_media' => SORT_DESC,
-                    'total_avaliacoes' => SORT_DESC,
+                    'loja.nota_media' => SORT_DESC,
+                    'loja.total_avaliacoes' => SORT_DESC,
                 ]);
             } else {
                 $queryAprox->orderBy([
-                    'destaque' => SORT_DESC,
-                    'nota_media' => SORT_DESC,
+                    'loja.destaque' => SORT_DESC,
+                    'loja.nota_media' => SORT_DESC,
                 ]);
             }
 
