@@ -7,6 +7,7 @@ use app\components\ApiResponse;
 use app\components\FirebaseService;
 use app\models\api\lojista\LojistaUsuarioLoja;
 use app\models\api\app\Pedido;
+use app\models\api\app\AppEndereco;
 use app\models\api\lojista\PedidoStatusHistorico;
 use app\controllers\api\lojista\LojistaControllerBase;
 use yii\data\Pagination;
@@ -671,7 +672,7 @@ class LojistaPedidoController extends LojistaControllerBase
     }
 
     /**
-     * Formata pedido com todos os detalhes (incluindo itens do relacionamento)
+     * 🔥 CORRIGIDO: Formata pedido com todos os detalhes (incluindo latitude/longitude do endereço)
      */
     private function formatPedidoCompleto($pedido)
     {
@@ -698,18 +699,46 @@ class LojistaPedidoController extends LojistaControllerBase
             }
         }
 
-        // Normalizar endereço
-        $endereco = null;
-        if (isset($pedido->endereco_entrega)) {
-            if (is_string($pedido->endereco_entrega)) {
-                $decoded = json_decode($pedido->endereco_entrega, true);
-                if (is_array($decoded)) {
-                    $endereco = $decoded;
-                } else {
-                    $endereco = $pedido->endereco_entrega;
+        // 🔥 🔥 🔥 CORREÇÃO: Buscar latitude/longitude do endereço
+        $latitude = null;
+        $longitude = null;
+        $enderecoFormatado = null;
+
+        if (!empty($pedido->endereco_id)) {
+            $endereco = AppEndereco::find()
+                ->where(['id' => $pedido->endereco_id])
+                ->andWhere(['deletado_em' => null])
+                ->one();
+            
+            if ($endereco) {
+                $latitude = $endereco->latitude ? (float)$endereco->latitude : null;
+                $longitude = $endereco->longitude ? (float)$endereco->longitude : null;
+                $enderecoFormatado = [
+                    'logradouro' => $endereco->logradouro,
+                    'numero' => $endereco->numero,
+                    'complemento' => $endereco->complemento,
+                    'bairro' => $endereco->bairro,
+                    'cidade' => $endereco->cidade,
+                    'uf' => $endereco->uf,
+                    'cep' => $endereco->cep,
+                    'latitude' => $latitude,
+                    'longitude' => $longitude,
+                ];
+            }
+        }
+
+        // Fallback: se não encontrou pelo endereco_id, tenta usar endereco_entrega (JSON)
+        if (empty($latitude) && isset($pedido->endereco_entrega)) {
+            $enderecoEntrega = $pedido->endereco_entrega;
+            if (is_string($enderecoEntrega)) {
+                $enderecoEntrega = json_decode($enderecoEntrega, true);
+            }
+            if (is_array($enderecoEntrega)) {
+                $latitude = $enderecoEntrega['latitude'] ?? null;
+                $longitude = $enderecoEntrega['longitude'] ?? null;
+                if (empty($enderecoFormatado)) {
+                    $enderecoFormatado = $enderecoEntrega;
                 }
-            } else {
-                $endereco = $pedido->endereco_entrega;
             }
         }
 
@@ -727,7 +756,10 @@ class LojistaPedidoController extends LojistaControllerBase
             'forma_pagamento' => $pedido->forma_pagamento,
             'pagamento_status' => $pedido->pagamento_status ?? null,
             'troco_para' => $pedido->troco_para ? (float)$pedido->troco_para : null,
-            'endereco_entrega' => $endereco,
+            // 🔥 ENDEREÇO COM LAT/LNG
+            'endereco_entrega' => $enderecoFormatado,
+            'latitude' => $latitude, // 🔥 ADICIONADO
+            'longitude' => $longitude, // 🔥 ADICIONADO
             'itens' => $itens,
             'observacoes' => $pedido->observacoes,
             'distancia_km' => $pedido->distancia_km ? (float)$pedido->distancia_km : null,
@@ -773,7 +805,7 @@ class LojistaPedidoController extends LojistaControllerBase
         }
     }
 
-    // ==================== NOVO MÉTODO PARA ENVIO DE PUSH AO CLIENTE ====================
+    // ==================== ENVIO DE PUSH AO CLIENTE ====================
 
     /**
      * Envia notificação push para o cliente sobre atualização do pedido

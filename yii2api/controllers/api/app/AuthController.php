@@ -103,7 +103,7 @@ class AuthController extends AppControllerBase
    /**
      * POST /api/app/auth/verify-otp
      * Verifica código OTP e marca telefone como verificado
-     * 🔥 VALIDAÇÃO DUMB: aceita qualquer código de 6 dígitos (desenvolvimento)
+     * 🔥 CORRIGIDO: Busca por token, device_id e telefone antes de criar
      */
     public function actionVerifyOtp()
     {
@@ -125,49 +125,80 @@ class AuthController extends AppControllerBase
             return ApiResponse::error('Código deve ter 6 dígitos', 400);
         }
 
-        $usuario = Usuario::find()
-            ->where(['telefone' => $telefone])
-            ->andWhere(['deletado_em' => null])
-            ->one();
-
-        if (!$usuario && $deviceId) {
+        // 🔥 1. PRIORIDADE 1: Busca pelo access_token (convidado autenticado)
+        $usuario = null;
+        $authHeader = $request->getHeaders()->get('Authorization');
+        if ($authHeader) {
+            $token = str_replace('Bearer ', '', $authHeader);
             $usuario = Usuario::find()
-                ->where(['device_id' => $deviceId, 'status' => 'convidado'])
+                ->where(['access_token' => $token])
+                ->andWhere(['>', 'access_token_expira_em', date('Y-m-d H:i:s')])
                 ->andWhere(['deletado_em' => null])
                 ->one();
-
+            
             if ($usuario) {
-                $usuario->telefone = $telefone;
-                Yii::info("✅ Convidado ID {$usuario->id} vinculado ao telefone", __METHOD__);
+                Yii::info("✅ [OTP] Usuário encontrado por access_token: ID {$usuario->id}, status: {$usuario->status}", __METHOD__);
             }
         }
 
+        // 🔥 2. PRIORIDADE 2: Se não encontrou por token, busca por device_id
+        if (!$usuario && $deviceId) {
+            $usuario = Usuario::find()
+                ->where(['device_id' => $deviceId])
+                ->andWhere(['deletado_em' => null])
+                ->one();
+            
+            if ($usuario) {
+                Yii::info("✅ [OTP] Usuário encontrado por device_id: ID {$usuario->id}, status: {$usuario->status}", __METHOD__);
+            }
+        }
+
+        // 🔥 3. PRIORIDADE 3: Se não encontrou, busca por telefone (evita duplicidade)
         if (!$usuario) {
-            return ApiResponse::error('Usuário não encontrado', 404);
+            $usuario = Usuario::find()
+                ->where(['telefone' => $telefone])
+                ->andWhere(['deletado_em' => null])
+                ->one();
+            
+            if ($usuario) {
+                Yii::info("✅ [OTP] Usuário encontrado por telefone: ID {$usuario->id}, status: {$usuario->status}", __METHOD__);
+            }
         }
 
-        // 🔥 🔥 🔥 VALIDAÇÃO DUMB: QUALQUER CÓDIGO DE 6 DÍGITOS É ACEITO
-        // TODO: Remover em produção e validar com reset_token
-
-        // Limpa o token gerado (opcional, mantemos para não acumular)
-        $usuario->reset_token = null;
-        $usuario->reset_token_expira_em = null;
-
-        // ✅ Marca telefone como verificado
-        $usuario->telefone_verificado = 1;
-
-        // 🔥 SALVA DEVICE_ID
-        if (!empty($deviceId)) {
+        // 🔥 4. PRIORIDADE 4: Se ainda não encontrou, CRIA UM NOVO USUÁRIO
+        if (!$usuario) {
+            $usuario = new Usuario();
             $usuario->device_id = $deviceId;
-            Yii::info("[AUTH] Device ID salvo: $deviceId", __METHOD__);
+            $usuario->status = 'convidado';
+            $usuario->auth_key = Yii::$app->security->generateRandomString(32);
+            $usuario->tipo = Usuario::TIPO_CLIENTE;
+            $usuario->pref_tema = 'auto';
+            $usuario->telefone = $telefone;
+            $usuario->telefone_verificado = 1;
+            $usuario->ultimo_login_em = date('Y-m-d H:i:s');
+            $usuario->save(false);
+            
+            Yii::info("🆕 [OTP] Novo usuário criado: ID {$usuario->id}", __METHOD__);
         }
 
-        // 🔥 SALVA DEVICE_TOKEN (FCM)
+        // 🔥 5. ATUALIZA O USUÁRIO (se encontrado ou criado)
+        // Se o usuário foi encontrado por telefone, mas tem device_id diferente, atualiza device_id
+        if (!empty($deviceId) && $usuario->device_id != $deviceId) {
+            $usuario->device_id = $deviceId;
+            Yii::info("[AUTH] Device ID atualizado para: $deviceId", __METHOD__);
+        }
+
+        // Atualiza device_token
         if (!empty($deviceToken)) {
             $usuario->device_token = $deviceToken;
-            Yii::info("[AUTH] Device token salvo para " . substr($deviceToken, 0, 20) . '...', __METHOD__);
+            Yii::info("[AUTH] Device token atualizado", __METHOD__);
         }
 
+        // Marca telefone como verificado e atualiza status
+        $usuario->telefone = $telefone;
+        $usuario->telefone_verificado = 1;
+
+        // Se ainda é convidado, muda para pendente ou ativo dependendo se tem nome
         if ($usuario->status == 'convidado') {
             if (empty($usuario->nome)) {
                 $usuario->status = 'pendente';
@@ -176,8 +207,21 @@ class AuthController extends AppControllerBase
             }
         }
 
-        // ✅ CORREÇÃO: GERA APENAS O ACCESS TOKEN
-        // O REFRESH TOKEN É MANTIDO (se já existir) ou criado apenas uma vez
+        // Limpa token OTP
+        $usuario->reset_token = null;
+        $usuario->reset_token_expira_em = null;
+
+        // Atualiza login metadata
+        $usuario->ultimo_login_em = date('Y-m-d H:i:s');
+        $usuario->login_count = ($usuario->login_count ?? 0) + 1;
+
+        // Salva
+        if (!$usuario->save()) {
+            Yii::error("❌ [OTP] Erro ao salvar usuário: " . json_encode($usuario->errors), __METHOD__);
+            return ApiResponse::error('Erro ao processar usuário', 500);
+        }
+
+        // ✅ GERA ACCESS TOKEN
         $accessToken = $usuario->generateAccessToken(7200);
         
         // ✅ SE NÃO TIVER REFRESH TOKEN, CRIA UM
@@ -189,18 +233,16 @@ class AuthController extends AppControllerBase
         if ($usuario->refresh_token_expira_em !== null) {
             $refreshExpiry = strtotime($usuario->refresh_token_expira_em);
             if ($refreshExpiry < time()) {
-                // Se expirou, renova
                 $usuario->generateRefreshToken(2592000);
             }
         }
 
-        $usuario->ultimo_login_em = date('Y-m-d H:i:s');
-        $usuario->login_count = ($usuario->login_count ?? 0) + 1;
+        // Salva novamente para persistir tokens
         $usuario->save(false);
 
         return ApiResponse::success([
             'access_token' => $accessToken,
-            'refresh_token' => $usuario->refresh_token, // ✅ MANTÉM O REFRESH TOKEN EXISTENTE
+            'refresh_token' => $usuario->refresh_token,
             'expires_in' => 7200,
             'token_type' => 'Bearer',
             'usuario' => $this->formatUsuario($usuario),

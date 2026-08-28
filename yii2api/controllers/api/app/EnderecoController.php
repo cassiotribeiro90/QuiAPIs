@@ -163,6 +163,12 @@ class EnderecoController extends AppControllerBase
         $request = Yii::$app->request;
         $debug = [];
 
+        // 🔥 LOG DA REQUISIÇÃO COMPLETA (PAYLOAD)
+        Yii::info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━", __METHOD__);
+        Yii::info("📝 [CREATE] NOVO ENDEREÇO RECEBIDO", __METHOD__);
+        Yii::info("📝 [CREATE] PAYLOAD: " . json_encode($request->post(), JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE), __METHOD__);
+        Yii::info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━", __METHOD__);
+
         try {
             // ✅ 1. Tenta obter usuário pelo token (autenticado)
             $authHeader = $request->getHeaders()->get('Authorization');
@@ -213,8 +219,14 @@ class EnderecoController extends AppControllerBase
             $endereco->bairro = $request->post('bairro');
             $endereco->cidade = $request->post('cidade');
             $endereco->uf = $request->post('uf');
-            $endereco->latitude = $request->post('latitude');
-            $endereco->longitude = $request->post('longitude');
+            
+            // 🔥 Mantém coordenadas do CEP (se vier do frontend)
+            $latitude = $request->post('latitude');
+            $longitude = $request->post('longitude');
+            
+            $endereco->latitude = $latitude ? (float)$latitude : null;
+            $endereco->longitude = $longitude ? (float)$longitude : null;
+            
             $endereco->referencia = $request->post('referencia');
             $endereco->destinatario = $request->post('destinatario');
             $endereco->telefone_contato = $request->post('telefone_contato');
@@ -244,10 +256,11 @@ class EnderecoController extends AppControllerBase
             $endereco->padrao = 1;
             $endereco->save(false);
 
-            if (empty($endereco->latitude) || empty($endereco->longitude)) {
-                $this->enriquecerCoordenadas($endereco);
-                $endereco->save(false);
-            }
+            // 🔥 Tenta enriquecer com o endereço completo (com número)
+            // Se conseguir, substitui pela coordenada mais precisa
+            // Se não, mantém a original (do CEP)
+            $this->enriquecerCoordenadas($endereco);
+            $endereco->save(false);
 
             $debug['endereco_id'] = $endereco->id;
             $debug['endereco_salvo'] = true;
@@ -262,7 +275,6 @@ class EnderecoController extends AppControllerBase
                 'endereco' => $this->formatEndereco($endereco),
             ];
 
-            // ✅ Só inclui token se foi gerado (convidado)
             if ($token) {
                 $responseData['token'] = $token;
             }
@@ -309,8 +321,16 @@ class EnderecoController extends AppControllerBase
             $endereco->bairro = $request->post('bairro', $endereco->bairro);
             $endereco->cidade = $request->post('cidade', $endereco->cidade);
             $endereco->uf = $request->post('uf', $endereco->uf);
-            $endereco->latitude = $request->post('latitude', $endereco->latitude);
-            $endereco->longitude = $request->post('longitude', $endereco->longitude);
+            
+            // 🔥 Atualiza coordenadas se vier do frontend
+            $latitude = $request->post('latitude');
+            $longitude = $request->post('longitude');
+            
+            if ($latitude !== null && $longitude !== null) {
+                $endereco->latitude = (float)$latitude;
+                $endereco->longitude = (float)$longitude;
+            }
+            
             $endereco->referencia = $request->post('referencia', $endereco->referencia);
             $endereco->destinatario = $request->post('destinatario', $endereco->destinatario);
             $endereco->telefone_contato = $request->post('telefone_contato', $endereco->telefone_contato);
@@ -318,9 +338,8 @@ class EnderecoController extends AppControllerBase
             $endereco->ativo = 1;
             $endereco->deletado_em = null;
 
-            if (empty($endereco->latitude) || empty($endereco->longitude)) {
-                $this->enriquecerCoordenadas($endereco);
-            }
+            // 🔥 Tenta enriquecer com o endereço completo (com número)
+            $this->enriquecerCoordenadas($endereco);
 
             if (!$endereco->save()) {
                 $errors = [];
@@ -489,31 +508,26 @@ class EnderecoController extends AppControllerBase
         }
     }
 
-    private function enriquecerCoordenadas(Endereco $endereco)
+    /**
+     * 🔥 Busca coordenadas via Nominatim (OpenStreetMap)
+     * Com logs detalhados para depuração
+     */
+    private function buscarCoordenadasNominatim($enderecoCompleto)
     {
-        if (!empty($endereco->latitude) || !empty($endereco->longitude)) {
-            return;
-        }
-
         try {
-            $client = new Client(['timeout' => 5]);
+            $client = new Client(['timeout' => 15]);
 
             $queryParams = [
-                'street' => $endereco->logradouro . ', ' . $endereco->numero,
-                'city' => $endereco->cidade,
-                'state' => $endereco->uf,
-                'country' => 'Brasil',
+                'q' => $enderecoCompleto,
                 'format' => 'json',
                 'limit' => 1,
                 'accept-language' => 'pt-BR',
+                'addressdetails' => 1,
             ];
 
-            if (!empty($endereco->bairro)) {
-                $queryParams['county'] = $endereco->bairro;
-            }
-            if (!empty($endereco->cep)) {
-                $queryParams['postalcode'] = preg_replace('/\D/', '', $endereco->cep);
-            }
+            $url = 'https://nominatim.openstreetmap.org/search?' . http_build_query($queryParams);
+            
+            Yii::info("📡 [NOMINATIM] URL: $url", __METHOD__);
 
             $response = $client->get('https://nominatim.openstreetmap.org/search', [
                 'query' => $queryParams,
@@ -524,14 +538,119 @@ class EnderecoController extends AppControllerBase
 
             $data = json_decode($response->getBody(), true);
 
+            Yii::info("📡 [NOMINATIM] Resposta: " . json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE), __METHOD__);
+
             if (!empty($data) && isset($data[0]['lat'], $data[0]['lon'])) {
-                $endereco->latitude = (float)$data[0]['lat'];
-                $endereco->longitude = (float)$data[0]['lon'];
-                Yii::info("Coordenadas obtidas para endereço {$endereco->id}: {$endereco->latitude}, {$endereco->longitude}", __METHOD__);
+                $lat = (float)$data[0]['lat'];
+                $lon = (float)$data[0]['lon'];
+                
+                if ($lat >= -34 && $lat <= 5 && $lon >= -74 && $lon <= -34) {
+                    Yii::info("✅ [NOMINATIM] Coordenadas obtidas: $lat, $lon", __METHOD__);
+                    return ['lat' => $lat, 'lng' => $lon];
+                } else {
+                    Yii::warning("⚠️ [NOMINATIM] Coordenadas fora do Brasil: $lat, $lon", __METHOD__);
+                }
+            } else {
+                Yii::warning("⚠️ [NOMINATIM] Nenhum resultado encontrado para: $enderecoCompleto", __METHOD__);
             }
         } catch (\Exception $e) {
-            Yii::warning("Não foi possível obter coordenadas: " . $e->getMessage(), __METHOD__);
+            Yii::error("❌ [NOMINATIM] Erro: " . $e->getMessage(), __METHOD__);
         }
+
+        return null;
+    }
+
+    /**
+     * 🔥 Enriquecimento com fallbacks
+     * 1. Nominatim com endereço completo (número)
+     * 2. Nominatim com CEP (fallback)
+     * 3. Mantém coordenada original (se existir)
+     * 4. Coordenada padrão (Belo Horizonte)
+     */
+    private function enriquecerCoordenadas(Endereco $endereco)
+    {
+        // 🔥 Constrói o endereço completo com número
+        $partes = [];
+        
+        if (!empty($endereco->logradouro)) {
+            $partes[] = trim($endereco->logradouro);
+        }
+        
+        if (!empty($endereco->numero)) {
+            $partes[] = trim($endereco->numero);
+        }
+        
+        if (!empty($endereco->complemento)) {
+            $partes[] = trim($endereco->complemento);
+        }
+        
+        if (!empty($endereco->bairro)) {
+            $partes[] = trim($endereco->bairro);
+        }
+        
+        if (!empty($endereco->cidade)) {
+            $partes[] = trim($endereco->cidade);
+        }
+        
+        if (!empty($endereco->uf)) {
+            $partes[] = trim($endereco->uf);
+        }
+        
+        $partes[] = 'Brasil';
+        
+        $enderecoCompleto = implode(', ', array_filter($partes));
+
+        // 🔥 Salva coordenada original (se existir)
+        $latOriginal = $endereco->latitude;
+        $lngOriginal = $endereco->longitude;
+
+        Yii::info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━", __METHOD__);
+        Yii::info("🔍 [COORD] INICIANDO ENRIQUECIMENTO", __METHOD__);
+        Yii::info("🔍 [COORD] ID: " . ($endereco->id ?? 'NOVO'), __METHOD__);
+        Yii::info("🔍 [COORD] Endereço: $enderecoCompleto", __METHOD__);
+        Yii::info("🔍 [COORD] Coordenada original: lat=$latOriginal, lng=$lngOriginal", __METHOD__);
+        Yii::info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━", __METHOD__);
+
+        // 🔥 1. Tenta com endereço completo + número
+        $coordenadas = $this->buscarCoordenadasNominatim($enderecoCompleto);
+        
+        if ($coordenadas) {
+            $endereco->latitude = $coordenadas['lat'];
+            $endereco->longitude = $coordenadas['lng'];
+            Yii::info("✅ [COORD] Substituído por Nominatim (endereço completo): {$endereco->latitude}, {$endereco->longitude}", __METHOD__);
+            return true;
+        }
+
+        // 🔥 2. Tenta com CEP (fallback)
+        if (!empty($endereco->cep)) {
+            $cep = preg_replace('/\D/', '', $endereco->cep);
+            $enderecoCep = "CEP $cep, " . trim($endereco->cidade) . ", " . trim($endereco->uf) . ", Brasil";
+            
+            Yii::info("🔄 [COORD] Tentando com CEP: $enderecoCep", __METHOD__);
+            
+            $coordenadas = $this->buscarCoordenadasNominatim($enderecoCep);
+            if ($coordenadas) {
+                $endereco->latitude = $coordenadas['lat'];
+                $endereco->longitude = $coordenadas['lng'];
+                Yii::info("✅ [COORD] Substituído por CEP: {$endereco->latitude}, {$endereco->longitude}", __METHOD__);
+                return true;
+            }
+        }
+
+        // 🔥 3. Nenhuma coordenada melhor encontrada → mantém a original (se existir)
+        if ($latOriginal !== null && $lngOriginal !== null) {
+            $endereco->latitude = $latOriginal;
+            $endereco->longitude = $lngOriginal;
+            Yii::info("⚠️ [COORD] Nenhuma coordenada melhor encontrada. Mantendo original: $latOriginal, $lngOriginal", __METHOD__);
+            return false;
+        }
+
+        // 🔥 4. Último fallback: coordenada padrão (Belo Horizonte)
+        Yii::warning("⚠️ [COORD] Nenhuma coordenada disponível! Usando coordenada padrão", __METHOD__);
+        $endereco->latitude = -19.8271886;
+        $endereco->longitude = -43.9555711;
+        
+        return false;
     }
 
     private function formatEndereco($endereco)
